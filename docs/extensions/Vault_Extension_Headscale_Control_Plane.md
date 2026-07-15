@@ -49,6 +49,10 @@ cross-VPS signed ceremony payloads
 2 S3 backup roles
 2 S3 buckets
 2 fixed S3 egress /32 restrictions
+AWS-side snapshot + later lock-removal S3 completion revocation
+2 device-specific completion revokers + read-only completion-status Lambda
+backup-role permissions boundaries and AWSRevokeOlderSessions cutoff policy
+signed cross-VPS CLOSE_PEER S3 admission shutdown over wg-cross
 RHEL local dual-signature verification
 RHEL per-repository daily slots
 RHEL signed hard one-hour deadline
@@ -144,8 +148,10 @@ Lock, managed-control-plane enrollment, and Tailscale API expiry-helper steps.
 
 Keep every non-control-plane canonical component unchanged. In particular, still build
 the two VPS signing keys, cross-VPS ceremony, Lambda daily gates, separate roles/buckets,
-fixed egress proxies, RHEL local dual-signature gate, signed hard deadline, and
-outbound-only primary devices.
+fixed egress proxies, AWS-side snapshot-plus-later-lock-removal completion revokers,
+shared read-only exact-session status Lambda, backup-role permissions boundaries,
+signed `CLOSE_PEER` cross-VPS S3 close messages, RHEL local dual-signature gate, signed
+hard deadline, and outbound-only primary devices.
 
 For a day-zero Headscale installation:
 
@@ -1131,6 +1137,27 @@ The root-owned path helper translates that narrow intent into the one fixed Head
 expiry command.
 
 ---
+
+## 15A. S3 completion close is control-plane-provider independent
+
+Replacing Tailscale with Headscale does **not** replace the S3 successful-completion
+containment path. `CLOSE_PEER s3` is authenticated with the Vault VPS Ed25519 signing
+keys and transported over the dedicated `wg-cross` link; it is not authorized by
+Tailscale Tailnet Lock, Headscale ACL state, or the node-expiry mechanism.
+
+After migration, rerun the canonical tests proving:
+
+```text
+own MFA + opposite primary absent -> no fresh S3 issuance
+snapshot alone -> not REVOKED
+snapshot + later lock removal -> REVOKED + AWSRevokeOlderSessions
+old STS denied after IAM propagation
+clean opposite primary sees exact-session REVOKED and closes target proxy via CLOSE_PEER
+wrong-deadline/expired CLOSE rejected
+```
+
+Headscale local exact-node expiry remains a separate session-hygiene mechanism. Do not
+misdescribe it as STS revocation or as the peer-close authorization factor.
 
 ## 16. Day-zero acceptance tests
 

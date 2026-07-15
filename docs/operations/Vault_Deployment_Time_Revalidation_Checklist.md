@@ -323,9 +323,13 @@ It is a shared security parameter enforced by several independent components.
 The baseline threat model accepts the following residual risk:
 
 > Malware already participating in a legitimately authorized session can try to use the
-> currently authorized window until the signed hard deadline.
+> currently authorized **incomplete-backup** window until successful-completion
+> containment or the signed hard deadline.
 
-The one-hour ceiling bounds that window.
+For S3, the one-hour ceiling is the final fallback rather than the intended normal
+post-success lifetime: snapshot creation plus later repository-lock removal should cause
+exact-role session revocation and a clean-opposite signed peer close. The one-hour ceiling
+still bounds incomplete/no-snapshot sessions and containment-path failure.
 
 A longer session therefore increases residual exposure.
 
@@ -578,7 +582,10 @@ Verify:
 new work is denied after the signed deadline
 an existing TCP connection does not renew the Vault session
 connection activity does not slide/extend session_expires_at
-DONE remains only an early-close signal
+local S3 DONE is only cooperative cleanup; successful S3 completion is contained by
+  AWS-side completion revocation plus exact-session signed peer close
+RHEL DONE remains only an authenticated early-close signal; the RHEL hard-stop timer is
+  the RHEL security boundary
 ```
 
 ### I. Documentation and threat model
@@ -684,7 +691,8 @@ daily slot does not permit a second STS mint
 replayed old proof cannot open a new session
 VPS restart does not extend persisted deadline
 RHEL gate restart does not cancel an already-scheduled systemd hard stop
-suppressed DONE cannot extend the deadline
+suppressed local S3 DONE cannot veto close after successful completion evidence
+suppressed RHEL DONE cannot extend the signed RHEL deadline
 long-lived TCP activity cannot slide the deadline
 ```
 
@@ -692,9 +700,15 @@ For S3 specifically:
 
 ```text
 STS credential Expiration is recorded
+own MFA without opposite live s3 phase cannot create a fresh dual-signed issuance proof
 new S3 requests fail after credential expiry
 no application code automatically obtains a second credential
 ambiguous AssumeRole result does not trigger a second AssumeRole attempt
+snapshot creation alone does not revoke the session
+snapshot creation followed by a later matching lock removal drives OPEN -> REVOKING -> REVOKED
+old-session S3 requests fail after AWS completion revocation propagates, before original
+  credential Expiration in the normal successful-completion path
+exact-session REVOKED status authorizes only signed close-only peer admission shutdown
 ```
 
 ---
@@ -1281,6 +1295,78 @@ Expected:
 
 ---
 
+## 10.3 Successful-completion revocation and peer-close revalidation
+
+The canonical 2026-07-16 S3 close path depends on several external/lifecycle assumptions
+that must be revalidated together. Check current official AWS documentation and the
+reviewed restic source for the deployed version.
+
+AWS assumptions to revalidate:
+
+```text
+IAM still supports revoking older role sessions with an inline deny conditioned on
+  aws:TokenIssueTime
+policy changes can affect active temporary role credentials after propagation
+S3 notification filters still support snapshots/ ObjectCreated and locks/ ObjectRemoved
+S3 notification delivery remains at-least-once and may be duplicate/out-of-order
+S3 LIST/GET namespace visibility used by reconciliation remains strongly consistent
+Lambda/EventBridge can still invoke the two device-specific revokers as configured
+put-bucket-notification-configuration replacement semantics are understood
+Node.js runtime selected by the guide is still supported
+```
+
+Restic lifecycle assumption to revalidate against the **exact deployed restic source**:
+
+```text
+backup still holds the append lock through the backup command lifecycle
+snapshot repository save still occurs after tree/blob backup work
+normal command unwind releases/removes the repository lock after snapshot save
+```
+
+Do not infer this ordering from a filename convention alone. If a future restic version
+changes the lock/snapshot lifecycle so that `snapshots/` creation followed by later
+`locks/` removal no longer represents successful command completion, classify:
+
+```text
+SECURITY REVIEW REQUIRED
+```
+
+and redesign the completion signal before upgrading production.
+
+Re-run these tests with synthetic data:
+
+```text
+own SSO/MFA + opposite primary absent -> no dual proof, no STS issuance
+snapshot-created event alone -> state remains OPEN
+lock-removal event before snapshot -> no premature revoke
+snapshot + later lock removal -> OPEN -> REVOKING -> REVOKED
+first completion_revoke_cutoff remains immutable under duplicate/out-of-order replay
+old STS through approved VPS -> AccessDenied after IAM propagation before original Expiration
+status query wrong session_expires_at -> ABSENT_OR_SESSION_MISMATCH
+exact opposite REVOKED -> clean primary can request signed CLOSE_PEER
+wrong-deadline/expired CLOSE -> rejected
+valid repeated CLOSE -> idempotent; never reopens admission
+completion revoker cannot mutate opposite backup role or list opposite bucket
+backup-role permissions boundary remains attached and caps broad inline Allow tests
+five-minute reconciliation cannot revoke an older slot after a newer same-device issuance
+```
+
+Also record observed latency separately for:
+
+```text
+snapshot/lock S3 event delivery
+completion Lambda execution
+status poll observation
+CLOSE_PEER acknowledgement / proxy admission close
+IAM revocation-policy propagation
+```
+
+Do not promise zero-millisecond revocation. The architectural claim is that a compromised
+target endpoint cannot **veto** containment after independently observed successful S3
+completion, while the signed one-hour deadline remains the final ceiling if completion
+never occurs or the containment path fails.
+
+
 # 11. S3 Glacier Deep Archive / Lifecycle Revalidation
 
 Revalidate current AWS documentation for:
@@ -1665,13 +1751,13 @@ Required invariant:
 
 ```text
 PC SSO role:
-  invoke only PC gate
-  no S3 data permission
+  invoke only PC issuance gate plus shared read-only completion-status Lambda
+  no S3/DynamoDB/IAM data or mutation permission
   no sts:AssumeRole to backup role
 
 Phone SSO role:
-  invoke only Phone gate
-  no S3 data permission
+  invoke only Phone issuance gate plus shared read-only completion-status Lambda
+  no S3/DynamoDB/IAM data or mutation permission
   no sts:AssumeRole to backup role
 ```
 
@@ -1921,6 +2007,13 @@ AWS
 [ ] Lambda runtime deprecation date is recorded.
 [ ] SDK dependencies are explicitly packaged and recorded.
 [ ] Exactly one STS AssumeRole attempt is proven.
+[ ] Own MFA without opposite live s3 phase cannot produce fresh STS issuance.
+[ ] Snapshot + later lock-removal completion lifecycle is revalidated against exact deployed restic source.
+[ ] S3 notification duplicate/out-of-order behavior and reconciliation assumptions are revalidated.
+[ ] AWSRevokeOlderSessions / aws:TokenIssueTime semantics are revalidated.
+[ ] Backup-role permissions boundaries remain attached and tested.
+[ ] Old STS is denied after successful-completion revocation propagation before original Expiration.
+[ ] Exact-session status and signed CLOSE_PEER tests pass; wrong-session close fails closed.
 [ ] Daily-slot fail-closed behavior is proven.
 [ ] SourceIp /32 policies match observed VPS egress.
 [ ] Exact S3 host proxy behavior is proven.

@@ -28,6 +28,10 @@ cross-VPS Ed25519 authorization
 daily AWS issuance slots
 separate S3 roles and buckets
 fixed S3 egress /32 restrictions
+AWS-side snapshot + later lock-removal S3 completion revocation
+read-only exact-session completion status
+signed cross-VPS CLOSE_PEER S3 admission shutdown
+backup-role permissions boundaries
 RHEL local dual-signature gate
 signed hard one-hour deadline
 primary inbound prohibition
@@ -623,6 +627,12 @@ uses the provider's network allowance; Tailscale-hosted DERP does not make that 
 bandwidth bill.
 
 ---
+
+### 12.1 Completion containment must survive the transport change
+
+Peer Relay changes packet transport only and does not replace successful-completion
+revocation, exact-session status, or signed cross-VPS `CLOSE_PEER`. Rerun the canonical
+completion containment tests after enabling the relay.
 
 ## 13. Remove Peer Relay and return to canonical transport
 

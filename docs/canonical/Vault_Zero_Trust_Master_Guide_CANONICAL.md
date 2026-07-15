@@ -105,7 +105,12 @@ S3:
   two backup roles
   two daily issuance slots
   one STS issuance attempt per device/calendar-day
-  already-issued credential may retry S3 data-plane operations until expiry
+  same issued credential may retry S3 data-plane work only while backup is incomplete
+  successful restic completion is inferred AWS-side from snapshot creation followed
+    by repository-lock removal, then the matching role session is revoked
+  the clean opposite primary closes the completed device's VPS S3 admission after
+    AWS reports the exact shared session as REVOKED
+  one-hour signed deadline remains the final fail-closed ceiling
   Glacier Deep Archive pack data; no routine read-data-subset against cold S3
 
 RETENTION:
@@ -143,8 +148,24 @@ server-side and independent of a cooperative endpoint.
 16. S3 accepts the backup-role data path only from vault-pc's fixed public egress /32.
 17. Network/S3 operation retries reuse the same STS credential; the issuance helper
    never invokes Lambda a second time after an ambiguous outcome.
-18. Cooperative DONE closes early. If malware suppresses DONE, the persisted signed
-   one-hour session deadline still closes admission and queues exact own-device expiry.
+18. A successful restic backup creates a new repository snapshot and then releases its
+   repository lock. S3 notifications feed both operations to the device-specific
+   completion revoker; duplicate or out-of-order events are processed idempotently.
+19. After the revoker has observed a snapshot followed by lock removal for the exact
+   issued window, it stores one immutable revocation cutoff and installs the
+   `AWSRevokeOlderSessions` deny on the matching backup role.
+20. Each primary keeps its MFA-backed SSO session only long enough to poll a read-only
+   completion-status Lambda for the opposite device and the exact shared
+   `session_expires_at`.
+21. When AWS reports the opposite device `REVOKED`, the clean primary authenticates to
+   its own coordinator and requests a close-only `CLOSE_PEER s3`. Its VPS signs a
+   short-lived close payload over `wg-cross`; the opposite VPS verifies the VPS
+   signature and exact shared session deadline, then closes only its local S3 proxy
+   admission.
+22. Local `DONE s3`, peer close, AWS role-session revocation, and the signed one-hour
+   deadline are ordered containment layers. No endpoint can use `DONE` to open or extend
+   a session, and suppressing `DONE` does not preserve the S3 path after a successful
+   backup has been independently observed.
 ```
 
 Phone S3 is symmetric and uses a different Lambda, daily slot, role, bucket, VPS egress
@@ -158,11 +179,21 @@ credential-creation path.
 ### Why a single compromised endpoint is not enough
 
 A PC compromise can expose the PC phase token and can control PC-side local actions. It
-cannot create the Phone-VPS signature. A Phone compromise is symmetric. During a
-legitimate joint session malware on one endpoint may share the already-authorized
-window; this is why the hard deadline, separate daily slot, fixed egress IP, bucket
-isolation, and per-repository RHEL capacity boundary still matter. The design does not
-claim that an endpoint already authorized for its own repository becomes harmless.
+cannot create the Phone-VPS signature. A Phone compromise is symmetric. **MFA alone is
+therefore not sufficient to start a fresh S3 transfer:** the opposite primary must also
+have a live authenticated `s3` phase so that the opposite VPS will sign the same fresh
+payload. Do not turn either phase helper into an always-on daemon or pre-authorize the
+absent primary.
+
+During a legitimate joint session malware on one endpoint may share the
+already-authorized window while the backup is incomplete. After a successful restic
+completion has been independently observed in S3, the completion revoker cuts off the
+old role session and the clean opposite primary receives read-only AWS completion state
+and closes the completed endpoint's VPS S3 admission with a fresh peer-VPS-signed
+close-only message. The one-hour hard deadline, separate daily slot, fixed egress IP,
+bucket isolation, and per-repository RHEL capacity boundary remain final containment
+layers. The design does not claim that an endpoint already authorized for its own
+repository becomes harmless during the short active window.
 
 ### Why a single compromised VPS is not enough
 
@@ -242,7 +273,13 @@ fails closed. There is no “connect directly to S3 without the VPS” fallback 
 [ ] SSO gate-invoke roles cannot call S3 or AssumeRole directly.
 [ ] Lambda consumes the slot before one non-retried AssumeRole attempt.
 [ ] AWS CLI invocation helper pins AWS_MAX_ATTEMPTS=1.
-[ ] Same issued STS credential may retry restic/S3 data-plane work until expiry.
+[ ] Same issued STS credential may retry only while completion state is not REVOKED and the signed deadline remains open.
+[ ] Each bucket sends snapshot-created and lock-removed events only to its own completion revoker.
+[ ] Completion revocation requires snapshot evidence plus subsequent lock-removal evidence for the exact issued window.
+[ ] First completion revoke cutoff is immutable; duplicate/out-of-order S3 events are idempotent.
+[ ] Each backup role has an exact-bucket/fixed-egress permissions boundary before the revoker receives iam:PutRolePolicy.
+[ ] Completion status is read-only and bound to exact calendar_date + session_expires_at.
+[ ] A clean opposite primary can issue only close-only peer S3 containment; it cannot open, extend, or mint authority.
 [ ] Budget threshold is explicitly operator-configurable; example default is USD 2/month.
 [ ] Threshold action sends email and attaches automatic deny to both backup roles.
 [ ] RHEL verifies both VPS signatures locally.
@@ -253,6 +290,7 @@ fails closed. There is no “connect directly to S3 without the VPS” fallback 
 [ ] No routine forget or prune path exists.
 [ ] Routine keyed content-read verification runs against hot RHEL, not Deep Archive S3.
 [ ] S3 cold restore has a separate tested recovery drill.
+[ ] Suppressing local DONE cannot preserve S3 admission after independently observed successful completion and peer close.
 [ ] Suppressing DONE cannot extend the signed hard session deadline.
 [ ] Exact own-primary Tailscale expiry ambiguity fails closed and blocks the next ceremony.
 [ ] Tailscale-hosted DERP works on the real restrictive network when direct UDP does not.
@@ -339,62 +377,113 @@ threat model.
 
 A few seconds of manual skew are expected. The local coordinator waits up to 10 minutes
 for the opposite device to join the same phase. Once a proof has been issued, a brief
-control-socket loss does not revoke an already-issued STS credential or an already-open
-RHEL backend; data-plane retries remain possible inside the bounded credential/backend
-window. The AWS and RHEL daily slots prevent a second issuance/opening ceremony.
+control-socket loss alone does not revoke an already-issued STS credential or an
+already-open RHEL backend. Before successful S3 completion revocation, transient
+S3 data-plane retries may reuse the same credential; after the exact slot reaches
+`REVOKED`, old-session reuse is intentionally denied. RHEL retries remain possible while
+the same bounded backend window is open. The AWS and RHEL daily slots prevent a second
+issuance/opening ceremony.
 
 If single-device backup later becomes legitimate, redesign the proof policy. Do not
 simulate the absent device, copy its phase token, or copy a VPS signing private key.
 
-### Endpoint-controlled `DONE` is an early-close signal, not a security factor
+### S3 completion revocation and cross-device close are security factors; local `DONE` is not
 
 A compromised primary endpoint can suppress its own `DONE` message after a legitimate
-ceremony has already opened. Therefore **no security guarantee in this generation may
-assume that malware will cooperate with `DONE`**.
+ceremony has already opened. Therefore **no S3 security guarantee in this generation
+assumes that malware will cooperate with local `DONE`**.
+
+The S3 close path is asymmetric by design:
 
 ```text
-valid dual-device S3 ceremony opens
-        ↓
-PC-VPS anchored signed session deadline is adopted by both VPSs
-        ↓
-restart-persistent one-hour session state exists on each VPS
-        ↓
-malware suppresses local DONE
-        ↓
-early close is lost
-        ↓
-hard deadline still closes admissions and queues primary-node expiry
+OPEN:
+  local live s3 phase
+  AND opposite live s3 phase
+  AND PC-VPS signature
+  AND Phone-VPS signature
+  AND device-specific SSO/MFA
+  AND unused device/day slot
+
+CLOSE AFTER SUCCESS:
+  local DONE may close own proxy immediately
+  AND AWS independently observes:
+        new snapshots/<id>
+        followed by repository locks/<id> removal
+      inside the exact issued session window
+  AND AWS revokes role sessions older than one immutable cutoff
+  AND clean opposite primary polls read-only completion state
+  AND clean opposite primary requests CLOSE_PEER s3
+  AND opposite VPS verifies peer-VPS signature + exact shared deadline
+  OR signed one-hour hard deadline expires
 ```
 
-`S3_PC` is the deterministic session anchor. This does **not** make the PC a unilateral
-authorization factor: `vault-phone` signs the anchor only while the Phone has a live
-authenticated `s3` socket. The signed `session_expires_at` value is then reused for the
-Phone S3 proof and both RHEL proofs. The two coordinators persist a daily session-used
-marker plus the exact hard deadline before releasing the anchored proof. A coordinator
-restart therefore does not erase the active/expired session ceiling.
+Restic saves the snapshot only after its backup tree/blob work has completed. The
+ordinary backup command holds an append lock and releases that lock when the command
+unwinds. The completion revoker therefore does **not** revoke on `snapshots/` creation
+alone. It records snapshot evidence and lock-removal evidence for the same issued
+window, tolerates duplicate or out-of-order S3 notifications, and transitions the slot
+to `REVOKED` only when both have been observed in the safe order. A periodic
+reconciliation invocation checks the strongly consistent S3 namespace for the same
+condition if a notification is delayed or missed.
 
-For S3, the daily non-renewable issuance slot plus the already-issued one-hour STS
-credential remains the credential boundary. In addition, the local S3 proxy sees the
-coordinator enter `EXPIRED` at the signed hard deadline and applies its bounded final
-drain. `DONE s3` merely closes earlier when the client cooperates.
+The revocation Lambda writes the matching backup role's inline
+`AWSRevokeOlderSessions` deny with:
 
-For RHEL, the local gate verifies the same signed `session_expires_at` and creates a
-systemd-managed hard-stop timer before starting the matching backend. The timer starts
-backend stop ten seconds before the signed deadline; `TimeoutStopSec=10s`,
-`KillMode=control-group`, and `SendSIGKILL=yes` bound teardown by the deadline even if
-traffic remains active or the gate process later crashes. The static `RuntimeMaxSec` is
-a second fallback. `DONE rhel` is an authenticated early-close/cleanup trigger.
+```text
+aws:TokenIssueTime < completion_revoke_cutoff
+```
+
+The first stored cutoff is immutable and reused for duplicate events. Future daily
+sessions issue after that cutoff and are not denied merely because the old revocation
+policy remains attached. Because IAM policy changes are not instantaneous, the Vault
+does not rely on IAM propagation as its only immediate close mechanism.
+
+Both daily workflows preserve their MFA-backed SSO session through a short S3 completion
+barrier. Each device asks the read-only `Vault-S3-Completion-Status` Lambda only about
+the opposite role and the exact `calendar_date + session_expires_at` decoded from its
+own dual-signed proof. When AWS reports that exact opposite slot as `REVOKED`, the clean
+device sends:
+
+```text
+CLOSE_PEER s3 <own phase token>
+```
+
+to **its own** coordinator. The caller cannot select an arbitrary target. Its coordinator
+derives the opposite role, signs a fresh close-only payload with its own VPS Ed25519 key,
+and sends it across `wg-cross`. The receiving VPS accepts `CLOSE` only from the exact
+peer WireGuard IP, verifies the peer VPS signature, checks a <=90-second freshness
+window, requires `target_role == its own role`, and requires the signed
+`session_expires_at` to equal the currently active shared deadline. It then closes only
+its local S3 phase/proxy admission.
+
+`CLOSE_PEER` has no proof-issuance, STS, RHEL-open, deadline-extension, or slot-reset
+authority. A compromised primary may abuse its own close token to close the opposite
+S3 path early and cause denial of service; under the single-compromise threat model
+that fail-safe close authority is preferable to giving one compromised endpoint a veto
+over containment.
+
+This changes the intended S3 residual risk:
+
+```text
+OLD residual:
+  malware can suppress DONE and use the already-issued STS/proxy path until one hour
+
+CURRENT residual:
+  malware can share the legitimate incomplete-backup window
+  successful completion -> AWS completion observation -> peer close / IAM revocation
+  S3 event/status/close propagation is not zero-millisecond
+  if a successful snapshot is never created, the backup never completed and the
+    signed one-hour deadline remains the final ceiling
+```
+
+`DONE rhel` remains an authenticated early-close/cleanup trigger rather than a security
+factor. RHEL has no equivalent S3 repository-event completion plane; its locally
+verified dual-signed proof and systemd-managed hard-stop timer remain the security
+boundary.
 
 At the hard session deadline, each VPS independently denies new proof/admission use and
 atomically queues expiry of **its own** primary Tailnet node. This hard-expiry path does
-not depend on `DONE`. The same expiry intent is queued earlier after a cooperative
-`DONE rhel`.
-
-This leaves the intended residual risk: malware already participating in a valid
-session may keep **its current authorized window** until the signed hard deadline. It
-still cannot create the opposite VPS signature, consume a second AWS/RHEL daily slot,
-or keep the Vault network session alive past the deadline merely by suppressing
-`DONE`.
+not depend on `DONE`, S3 event delivery, IAM propagation, or successful peer close.
 
 ### Secret placement
 
@@ -409,11 +498,13 @@ Each primary device stores only routine secrets needed to back up **its own** da
 Directory mode is `700`; secret file mode is `600`.
 
 AWS uses browser-authenticated IAM Identity Center / SSO. The PC and phone use different
-one-hour gate-invocation permission sets and profiles. Those SSO roles have **no S3
-permission**. They may invoke only the device-specific Lambda issuance gate. The Lambda
+one-hour routine permission sets and profiles. Those SSO roles have **no S3, DynamoDB,
+IAM, or `sts:AssumeRole` permission**. Each may invoke only its device-specific Lambda
+issuance gate plus the shared read-only `Vault-S3-Completion-Status` Lambda. The issuance
 gate returns one-hour STS credentials for the corresponding S3 backup role after the
-cross-VPS proof and daily slot checks succeed. The scripts hold those credentials in
-process memory/environment only and unset them after the S3 phase.
+cross-VPS proof and daily slot checks succeed. The status Lambda returns only exact-session
+completion state. The scripts hold STS credentials in process memory/environment only and
+unset them immediately after their S3 backup command succeeds.
 
 The PC never stores the phone restic password, phone phase token, or Phone-VPS private
 signing key. The phone never stores the PC equivalents. Both VPS public signing keys are
@@ -746,21 +837,35 @@ This variant intentionally contains no routine `restic forget` or `restic prune`
 PC SSO/MFA
   ↓
 Vault-PC-Gate-Invoke permission set
-  ↓ can invoke only
-Vault-PC-S3-Gate Lambda
-  + PC-VPS signed proof
-  + Phone-VPS signed proof
-  ↓
-DynamoDB conditional consume:
-S3#PC#YYYY-MM-DD
-  ↓
-AssumeRole ONCE, no STS retry
-  ↓
-Vault-PC-S3-BackupRole, 1 hour
-  ↓ aws:SourceIp = PC VPS reserved IPv4/32
-PC VPS exact-host CONNECT proxy
-  ↓
-vault-pc-<unique> bucket only
+  ├── invoke Vault-PC-S3-Gate only for fresh issuance
+  │     + PC-VPS signed proof
+  │     + Phone-VPS signed proof
+  │       ↓
+  │   DynamoDB conditional consume: S3#PC#YYYY-MM-DD
+  │       ↓
+  │   AssumeRole ONCE, no STS retry
+  │       ↓
+  │   Vault-PC-S3-BackupRole, 1 hour maximum
+  │       ↓ aws:SourceIp = PC VPS reserved IPv4/32
+  │   PC VPS exact-host CONNECT proxy
+  │       ↓
+  │   vault-pc-<unique> bucket only
+  │
+  └── invoke shared Vault-S3-Completion-Status read-only Lambda
+        workflow queries opposite device + exact date/session_expires_at; function
+        returns state only when the stored session deadline matches exactly
+
+S3 successful completion:
+  snapshot object created
+        + later matching lock object removed
+        ↓
+  device-specific completion revoker writes AWSRevokeOlderSessions cutoff
+        ↓
+  exact completion row becomes REVOKED
+        ↓
+  clean opposite primary requests signed CLOSE_PEER
+        ↓
+  target VPS closes local S3 proxy admission without target DONE cooperation
 
 Phone: symmetric, with PHONE slot, Phone role, Phone VPS egress IP and Phone bucket.
 ```
@@ -818,9 +923,25 @@ S3#PC#2026-07-15
 S3#PHONE#2026-07-15
 ```
 
-The Lambda computes the current `Europe/Istanbul` date. A new day naturally uses a new
-key. Retain old rows as a small audit trail or apply a later TTL policy only for
-housekeeping; deleting them is not part of the security decision.
+The issuance Lambda computes the current `Europe/Istanbul` date. A new day naturally
+uses a new key. The same row also becomes the S3 completion state record:
+
+```text
+pk
+ceremony_id
+consumed_at
+session_expires_at
+completion_state = OPEN | REVOKING | REVOKED
+snapshot_seen_at / snapshot_key
+lock_removed_at / lock_key
+completion_revoke_cutoff
+completion_revoked_at
+```
+
+The issuance gate creates the row with `completion_state=OPEN`. Only the device-specific
+completion revoker may add completion evidence or transition the row to `REVOKED`.
+Retain old rows as a small audit trail or apply a later TTL policy only for housekeeping;
+deleting them is not part of the security decision.
 
 **Calendar-boundary consequence:** this is deliberately a calendar-day rate limit, not a
 rolling 24-hour counter. A valid ceremony immediately before `00:00 Europe/Istanbul`
@@ -885,6 +1006,13 @@ Create the symmetric Phone policy for `vault-phone-yourname` and
 **Do not** give either backup role access to the other bucket. Add a bucket policy
 explicit deny for the opposite backup-role ARN as defense in depth.
 
+Create a managed permissions-boundary policy for each backup role from the same exact
+repository policy document and attach it as that role's permissions boundary **before**
+the completion revoker receives `iam:PutRolePolicy`. This is a compensating control for
+the completion Lambda's IAM write primitive: even if that Lambda is compromised and
+tries to replace the inline repository policy with a broader allow, the role's effective
+permissions remain capped by its own bucket and fixed egress envelope.
+
 ### 22.6 Create the two SSO gate-invocation permission sets
 
 Enable IAM Identity Center and require MFA for the dedicated Vault user. Create two
@@ -903,15 +1031,20 @@ PC inline policy:
   "Statement": [{
     "Effect": "Allow",
     "Action": "lambda:InvokeFunction",
-    "Resource": "arn:aws:lambda:REGION:ACCOUNT_ID:function:Vault-PC-S3-Gate"
+    "Resource": [
+      "arn:aws:lambda:REGION:ACCOUNT_ID:function:Vault-PC-S3-Gate",
+      "arn:aws:lambda:REGION:ACCOUNT_ID:function:Vault-S3-Completion-Status"
+    ]
   }]
 }
 ```
 
-Phone uses only `Vault-Phone-S3-Gate`.
+Phone uses only `Vault-Phone-S3-Gate` plus the same read-only
+`Vault-S3-Completion-Status` function.
 
-These roles intentionally have no `s3:*` and no `sts:AssumeRole` permission for the
-backup roles.
+These roles intentionally have no `s3:*`, no `sts:AssumeRole`, no DynamoDB permission,
+and no completion-revoker/IAM write authority. The status Lambda performs the read on
+their behalf and returns only non-secret completion state for an exact session key.
 
 Configure separate profiles:
 
@@ -953,9 +1086,9 @@ const pcPublicKey = Buffer.from(process.env.PC_PUBLIC_KEY_PEM_B64, 'base64').toS
 const phonePublicKey = Buffer.from(process.env.PHONE_PUBLIC_KEY_PEM_B64, 'base64').toString('utf8');
 
 const ddb = new DynamoDBClient({});
-// This client is intentionally configured for one total attempt. If AWS creates
-// credentials but the response is lost, retrying AssumeRole could create a second
-// live session. The daily slot remains consumed and the ceremony fails closed.
+// Exactly one total AssumeRole attempt. If AWS creates credentials but the response is
+// lost, retrying AssumeRole could create a second live session. The daily slot remains
+// consumed and the ceremony fails closed.
 const sts = new STSClient({ maxAttempts: 1 });
 
 function istanbulDate(date) {
@@ -1001,7 +1134,9 @@ function validatePayload(p) {
   if (now.valueOf() < issued.valueOf() - 30_000 || now.valueOf() > expires.valueOf()) fail('proof expired or not yet valid');
   const sessionExpires = new Date(p.session_expires_at);
   if (Number.isNaN(sessionExpires.valueOf())) fail('invalid session_expires_at');
-  if (sessionExpires.valueOf() <= now.valueOf() || sessionExpires.valueOf() - issued.valueOf() <= 0 || sessionExpires.valueOf() - issued.valueOf() > 3_600_000) {
+  if (sessionExpires.valueOf() <= now.valueOf() ||
+      sessionExpires.valueOf() - issued.valueOf() <= 0 ||
+      sessionExpires.valueOf() - issued.valueOf() > 3_600_000) {
     fail('invalid or expired Vault session deadline');
   }
   const today = istanbulDate(now);
@@ -1013,6 +1148,7 @@ export const handler = async (event) => {
   const payload = decodeBundle(event);
   const today = validatePayload(payload);
   const slot = `S3#${device.toUpperCase()}#${today}`;
+  const consumedAt = new Date().toISOString();
 
   try {
     await ddb.send(new PutItemCommand({
@@ -1020,7 +1156,9 @@ export const handler = async (event) => {
       Item: {
         pk: { S: slot },
         ceremony_id: { S: payload.ceremony_id },
-        consumed_at: { S: new Date().toISOString() }
+        consumed_at: { S: consumedAt },
+        session_expires_at: { S: payload.session_expires_at },
+        completion_state: { S: 'OPEN' }
       },
       ConditionExpression: 'attribute_not_exists(pk)'
     }));
@@ -1085,8 +1223,424 @@ anything ambiguous/failing → slot remains consumed; no second STS call that da
 
 This restriction applies only to credential creation. After one credential is
 successfully issued, restic/S3 request retries, reconnects, and transient data-plane
-retries are allowed with that **same credential** until its one-hour expiry or the
-network admission path closes.
+retries are allowed with that **same credential only while the backup is incomplete,
+the completion state has not reached `REVOKED`, and the signed hard deadline remains
+open**. A successful backup is expected to lose both its VPS admission path and its old
+role-session permissions before the one-hour maximum.
+
+### 22.7A Deploy the device-specific S3 completion revokers
+
+A one-hour STS credential is only the maximum credential lifetime. It is **not** the
+normal successful-backup lifetime.
+
+Each bucket has its own completion revoker:
+
+```text
+Vault-PC-S3-Completion-Revoker
+Vault-Phone-S3-Completion-Revoker
+```
+
+The revoker receives two repository events from only its own bucket:
+
+```text
+ObjectCreated:* under snapshots/
+ObjectRemoved:* under locks/
+```
+
+Restic creates a snapshot only after its backup tree/blob work has completed. The normal
+backup command holds an append lock and releases it when the command unwinds. Therefore
+the revoker stores both pieces of evidence and revokes only after:
+
+```text
+snapshot_seen_at exists
+AND lock_removed_at exists
+AND lock_removed_at >= snapshot_seen_at
+AND both event times belong to the exact consumed_at .. session_expires_at window
+```
+
+This state machine intentionally tolerates S3's duplicate and out-of-order event
+delivery. The first stored `completion_revoke_cutoff` is immutable. The cutoff is the
+recorded lock-removal event time, not Lambda observation time, so a delayed duplicate
+cannot revoke a later legitimate session merely because the event was delivered late.
+
+Before granting `iam:PutRolePolicy` to a completion revoker, attach an exact
+bucket/fixed-egress permissions boundary to the corresponding backup role. The boundary
+does not grant permissions. It caps any later inline-policy change so compromise of the
+revoker cannot broaden the backup role beyond the same repository envelope.
+
+The revoker writes only the standard-named inline deny:
+
+```text
+AWSRevokeOlderSessions
+```
+
+with `aws:TokenIssueTime < completion_revoke_cutoff`.
+
+A five-minute scheduled reconciliation invokes the same function with
+`{"reconcile":true}`. It checks the S3 namespace only for a currently relevant
+unrevoked slot. If a matching snapshot exists and no repository lock remains, it may
+synthesize completion evidence only when no newer same-device issuance exists.
+
+Completion revoker source (`index.mjs`):
+
+```javascript
+import { DynamoDBClient, GetItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
+import { IAMClient, PutRolePolicyCommand } from '@aws-sdk/client-iam';
+import { S3Client, ListObjectsV2Command } from '@aws-sdk/client-s3';
+
+const device = process.env.DEVICE?.toLowerCase();
+if (!['pc', 'phone'].includes(device)) throw new Error('DEVICE must be pc or phone');
+
+const tableName = process.env.TABLE_NAME;
+const bucketName = process.env.BUCKET_NAME;
+const backupRoleName = process.env.BACKUP_ROLE_NAME;
+if (!tableName || !bucketName || !backupRoleName) throw new Error('missing required environment');
+
+const ddb = new DynamoDBClient({});
+const iam = new IAMClient({});
+const s3 = new S3Client({});
+
+function istanbulDate(date) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Europe/Istanbul', year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date);
+  const map = Object.fromEntries(parts.map(p => [p.type, p.value]));
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
+function slotKey(date) {
+  return `S3#${device.toUpperCase()}#${date}`;
+}
+
+function eventCandidateDates(date) {
+  return [...new Set([istanbulDate(date), istanbulDate(new Date(date.valueOf() - 2 * 60 * 60 * 1000))])];
+}
+
+async function getSlot(date) {
+  const out = await ddb.send(new GetItemCommand({
+    TableName: tableName,
+    Key: { pk: { S: slotKey(date) } },
+    ConsistentRead: true
+  }));
+  return out.Item;
+}
+
+function parseWindow(item) {
+  if (!item?.consumed_at?.S || !item?.session_expires_at?.S) return null;
+  const consumed = new Date(item.consumed_at.S);
+  const deadline = new Date(item.session_expires_at.S);
+  if (Number.isNaN(consumed.valueOf()) || Number.isNaN(deadline.valueOf())) return null;
+  return { consumed, deadline };
+}
+
+function eventInside(item, eventTime) {
+  const w = parseWindow(item);
+  return !!w && eventTime.valueOf() >= w.consumed.valueOf() &&
+    eventTime.valueOf() <= w.deadline.valueOf();
+}
+
+async function findSlotForEvent(eventTime) {
+  for (const date of eventCandidateDates(eventTime)) {
+    const item = await getSlot(date);
+    if (item && eventInside(item, eventTime)) return { date, item };
+  }
+  return null;
+}
+
+async function recordSnapshot(date, key, eventTime) {
+  try {
+    await ddb.send(new UpdateItemCommand({
+      TableName: tableName,
+      Key: { pk: { S: slotKey(date) } },
+      UpdateExpression: 'SET snapshot_seen_at = if_not_exists(snapshot_seen_at, :t), snapshot_key = if_not_exists(snapshot_key, :k)',
+      ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(completion_state) OR completion_state <> :revoked)',
+      ExpressionAttributeValues: {
+        ':t': { S: eventTime.toISOString() },
+        ':k': { S: key },
+        ':revoked': { S: 'REVOKED' }
+      }
+    }));
+  } catch (err) {
+    if (err?.name !== 'ConditionalCheckFailedException') throw err;
+  }
+}
+
+async function recordLockRemoved(date, key, eventTime) {
+  try {
+    await ddb.send(new UpdateItemCommand({
+      TableName: tableName,
+      Key: { pk: { S: slotKey(date) } },
+      UpdateExpression: 'SET lock_removed_at = :t, lock_key = :k',
+      ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(lock_removed_at) OR lock_removed_at < :t) AND (attribute_not_exists(completion_state) OR completion_state <> :revoked)',
+      ExpressionAttributeValues: {
+        ':t': { S: eventTime.toISOString() },
+        ':k': { S: key },
+        ':revoked': { S: 'REVOKED' }
+      }
+    }));
+  } catch (err) {
+    if (err?.name !== 'ConditionalCheckFailedException') throw err;
+  }
+}
+
+async function maybeRevoke(date) {
+  const item = await getSlot(date);
+  if (!item || item.completion_state?.S === 'REVOKED') return false;
+
+  const snapshotSeen = item.snapshot_seen_at?.S ? new Date(item.snapshot_seen_at.S) : null;
+  const lockRemoved = item.lock_removed_at?.S ? new Date(item.lock_removed_at.S) : null;
+  if (!snapshotSeen || !lockRemoved ||
+      Number.isNaN(snapshotSeen.valueOf()) || Number.isNaN(lockRemoved.valueOf()) ||
+      lockRemoved.valueOf() < snapshotSeen.valueOf()) return false;
+
+  let attrs;
+  try {
+    const out = await ddb.send(new UpdateItemCommand({
+      TableName: tableName,
+      Key: { pk: { S: slotKey(date) } },
+      UpdateExpression: 'SET completion_revoke_cutoff = if_not_exists(completion_revoke_cutoff, :cutoff), completion_state = :revoking',
+      ConditionExpression: 'attribute_exists(pk) AND (attribute_not_exists(completion_state) OR completion_state <> :revoked)',
+      ExpressionAttributeValues: {
+        ':cutoff': { S: lockRemoved.toISOString() },
+        ':revoking': { S: 'REVOKING' },
+        ':revoked': { S: 'REVOKED' }
+      },
+      ReturnValues: 'ALL_NEW'
+    }));
+    attrs = out.Attributes;
+  } catch (err) {
+    if (err?.name === 'ConditionalCheckFailedException') return false;
+    throw err;
+  }
+
+  const cutoff = attrs?.completion_revoke_cutoff?.S;
+  if (!cutoff) throw new Error('completion revoke cutoff missing after state transition');
+
+  const policy = {
+    Version: '2012-10-17',
+    Statement: [{
+      Sid: 'RevokeOlderVaultBackupSessions',
+      Effect: 'Deny',
+      Action: '*',
+      Resource: '*',
+      Condition: { DateLessThan: { 'aws:TokenIssueTime': cutoff } }
+    }]
+  };
+
+  await iam.send(new PutRolePolicyCommand({
+    RoleName: backupRoleName,
+    PolicyName: 'AWSRevokeOlderSessions',
+    PolicyDocument: JSON.stringify(policy)
+  }));
+
+  await ddb.send(new UpdateItemCommand({
+    TableName: tableName,
+    Key: { pk: { S: slotKey(date) } },
+    UpdateExpression: 'SET completion_state = :revoked, completion_revoked_at = :now',
+    ExpressionAttributeValues: {
+      ':revoked': { S: 'REVOKED' },
+      ':now': { S: new Date().toISOString() }
+    }
+  }));
+  return true;
+}
+
+async function listWithin(prefix, consumed, deadline) {
+  const matches = [];
+  let ContinuationToken;
+  do {
+    const out = await s3.send(new ListObjectsV2Command({
+      Bucket: bucketName,
+      Prefix: prefix,
+      ContinuationToken
+    }));
+    for (const obj of out.Contents ?? []) {
+      const t = obj.LastModified;
+      if (t && t.valueOf() >= consumed.valueOf() && t.valueOf() <= deadline.valueOf()) {
+        matches.push({ key: obj.Key, time: t });
+      }
+    }
+    ContinuationToken = out.IsTruncated ? out.NextContinuationToken : undefined;
+  } while (ContinuationToken);
+  return matches;
+}
+
+async function newerSlotExists(consumedAt) {
+  const now = new Date();
+  for (const date of eventCandidateDates(now)) {
+    const item = await getSlot(date);
+    if (!item?.consumed_at?.S) continue;
+    const other = new Date(item.consumed_at.S);
+    if (!Number.isNaN(other.valueOf()) && other.valueOf() > consumedAt.valueOf()) return true;
+  }
+  return false;
+}
+
+async function reconcile() {
+  const now = new Date();
+  for (const date of eventCandidateDates(now)) {
+    let item = await getSlot(date);
+    if (!item || item.completion_state?.S === 'REVOKED') continue;
+    const w = parseWindow(item);
+    if (!w || now.valueOf() > w.deadline.valueOf() + 5 * 60 * 1000) continue;
+
+    const snapshots = await listWithin('snapshots/', w.consumed, w.deadline);
+    if (snapshots.length === 0) continue;
+    snapshots.sort((a, b) => a.time - b.time);
+    const firstSnapshot = snapshots[0];
+    await recordSnapshot(date, firstSnapshot.key, firstSnapshot.time);
+
+    // A missing lock is used only as reconciliation evidence while no newer same-device
+    // issuance exists. Normal completion uses the S3 lock-removal event timestamp.
+    const locks = await listWithin('locks/', w.consumed, w.deadline);
+    if (locks.length === 0 && !(await newerSlotExists(w.consumed))) {
+      await recordLockRemoved(date, 'RECONCILED_NO_ACTIVE_LOCK', now);
+    }
+    await maybeRevoke(date);
+  }
+}
+
+export const handler = async (event) => {
+  if (event?.reconcile === true) {
+    await reconcile();
+    return { Version: 1, Reconciled: true };
+  }
+
+  for (const record of event?.Records ?? []) {
+    if (record?.eventSource !== 'aws:s3') continue;
+    const key = decodeURIComponent((record.s3?.object?.key ?? '').replace(/\+/g, ' '));
+    const eventTime = new Date(record.eventTime);
+    if (Number.isNaN(eventTime.valueOf())) continue;
+
+    const found = await findSlotForEvent(eventTime);
+    if (!found) continue;
+
+    if (record.eventName?.startsWith('ObjectCreated:') && key.startsWith('snapshots/')) {
+      await recordSnapshot(found.date, key, eventTime);
+    } else if (record.eventName?.startsWith('ObjectRemoved:') && key.startsWith('locks/')) {
+      await recordLockRemoved(found.date, key, eventTime);
+    } else {
+      continue;
+    }
+    await maybeRevoke(found.date);
+  }
+
+  return { Version: 1, Processed: true };
+};
+```
+
+Device-specific environment:
+
+```text
+PC:
+  DEVICE=pc
+  TABLE_NAME=VaultDailyIssuanceSlots
+  BUCKET_NAME=<PC bucket>
+  BACKUP_ROLE_NAME=Vault-PC-S3-BackupRole
+
+Phone:
+  DEVICE=phone
+  TABLE_NAME=VaultDailyIssuanceSlots
+  BUCKET_NAME=<Phone bucket>
+  BACKUP_ROLE_NAME=Vault-Phone-S3-BackupRole
+```
+
+Each completion execution role is separate and receives only:
+
+```text
+dynamodb:GetItem + dynamodb:UpdateItem on VaultDailyIssuanceSlots
+s3:ListBucket on its exact bucket, restricted to snapshots/* and locks/*
+iam:PutRolePolicy on its exact backup role
+CloudWatch Logs write
+```
+
+It receives no `sts:AssumeRole`, no S3 object read/write, no opposite bucket, and no
+opposite backup role.
+
+### 22.7B Deploy the read-only S3 completion-status Lambda
+
+The clean opposite primary needs a non-secret answer to one question:
+
+> Has AWS independently completed revocation for the opposite device's exact shared
+> Vault session?
+
+Deploy one function:
+
+```text
+Vault-S3-Completion-Status
+```
+
+It has only `dynamodb:GetItem` on `VaultDailyIssuanceSlots`. It cannot update the slot,
+change IAM, assume a role, or access S3.
+
+Source (`index.mjs`):
+
+```javascript
+import { DynamoDBClient, GetItemCommand } from '@aws-sdk/client-dynamodb';
+
+const tableName = process.env.TABLE_NAME;
+if (!tableName) throw new Error('TABLE_NAME is required');
+const ddb = new DynamoDBClient({});
+
+function fail(message) {
+  const err = new Error(message);
+  err.name = 'InvalidRequest';
+  throw err;
+}
+
+export const handler = async (event) => {
+  const device = event?.device?.toLowerCase();
+  const calendarDate = event?.calendar_date;
+  const sessionExpiresAt = event?.session_expires_at;
+  if (!['pc', 'phone'].includes(device)) fail('device must be pc or phone');
+  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(calendarDate ?? '')) fail('invalid calendar_date');
+  const deadline = new Date(sessionExpiresAt);
+  if (typeof sessionExpiresAt !== 'string' || Number.isNaN(deadline.valueOf())) fail('invalid session_expires_at');
+
+  const pk = `S3#${device.toUpperCase()}#${calendarDate}`;
+  const out = await ddb.send(new GetItemCommand({
+    TableName: tableName,
+    Key: { pk: { S: pk } },
+    ConsistentRead: true
+  }));
+  const item = out.Item;
+  if (!item || item.session_expires_at?.S !== sessionExpiresAt) {
+    return { Version: 1, Completed: false, CompletionState: 'ABSENT_OR_SESSION_MISMATCH' };
+  }
+
+  const state = item.completion_state?.S ?? 'OPEN';
+  return {
+    Version: 1,
+    Completed: state === 'REVOKED',
+    CompletionState: state,
+    CompletionRevokedAt: item.completion_revoked_at?.S ?? null
+  };
+};
+```
+
+Environment:
+
+```text
+TABLE_NAME=VaultDailyIssuanceSlots
+```
+
+Request:
+
+```json
+{
+  "device": "phone",
+  "calendar_date": "2026-07-16",
+  "session_expires_at": "2026-07-16T20:15:00Z"
+}
+```
+
+The caller must supply the exact `calendar_date` and `session_expires_at` decoded from
+its own dual-signed S3 proof. A row for another date or another shared deadline is
+reported as `ABSENT_OR_SESSION_MISMATCH`.
+
+Both Identity Center gate permission sets may invoke this read-only status function in
+addition to their own device-specific issuance gate. They still receive no S3 or
+`sts:AssumeRole` authority.
 
 ### 22.8 Device invocation and credential export
 
@@ -1423,6 +1977,44 @@ export PHONE_LAMBDA_ROLE_ARN="$(aws iam get-role --role-name Vault-Phone-S3-Gate
 printf 'PC Lambda role: %s\nPhone Lambda role: %s\n' "$PC_LAMBDA_ROLE_ARN" "$PHONE_LAMBDA_ROLE_ARN"
 ```
 
+#### 22.12.4A Create completion-revoker and completion-status execution roles
+
+The S3 completion path uses three additional Lambda execution roles. Keep the PC and
+Phone revokers separate so neither function can mutate the opposite backup role. The
+shared status function is read-only.
+
+```bash
+for ROLE in \
+  Vault-PC-S3-Completion-ExecutionRole \
+  Vault-Phone-S3-Completion-ExecutionRole \
+  Vault-S3-Completion-Status-ExecutionRole; do
+  aws iam create-role \
+    --role-name "$ROLE" \
+    --assume-role-policy-document file:///tmp/vault-lambda-trust.json
+
+  aws iam attach-role-policy \
+    --role-name "$ROLE" \
+    --policy-arn arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+done
+
+export PC_COMPLETION_ROLE_ARN="$(aws iam get-role \
+  --role-name Vault-PC-S3-Completion-ExecutionRole \
+  --query 'Role.Arn' --output text)"
+export PHONE_COMPLETION_ROLE_ARN="$(aws iam get-role \
+  --role-name Vault-Phone-S3-Completion-ExecutionRole \
+  --query 'Role.Arn' --output text)"
+export COMPLETION_STATUS_ROLE_ARN="$(aws iam get-role \
+  --role-name Vault-S3-Completion-Status-ExecutionRole \
+  --query 'Role.Arn' --output text)"
+
+printf 'PC completion role: %s\nPhone completion role: %s\nStatus role: %s\n' \
+  "$PC_COMPLETION_ROLE_ARN" "$PHONE_COMPLETION_ROLE_ARN" "$COMPLETION_STATUS_ROLE_ARN"
+```
+
+Do not attach an AWS-managed S3 or IAM administration policy to these roles. Exact
+least-privilege inline policies are installed only after the backup-role permissions
+boundaries in Section 22.12.5 are visibly attached.
+
 #### 22.12.5 Create the two device-specific S3 backup roles
 
 PC backup-role trust policy:
@@ -1564,6 +2156,38 @@ aws iam put-role-policy \
   --policy-document file:///tmp/vault-phone-s3-policy.json
 ```
 
+Create exact permissions-boundary policies from the same reviewed documents and attach
+them to the matching backup roles:
+
+```bash
+export PC_BACKUP_BOUNDARY_ARN="$(aws iam create-policy \
+  --policy-name Vault-PC-S3-BackupBoundary \
+  --policy-document file:///tmp/vault-pc-s3-policy.json \
+  --query 'Policy.Arn' --output text)"
+
+export PHONE_BACKUP_BOUNDARY_ARN="$(aws iam create-policy \
+  --policy-name Vault-Phone-S3-BackupBoundary \
+  --policy-document file:///tmp/vault-phone-s3-policy.json \
+  --query 'Policy.Arn' --output text)"
+
+aws iam put-role-permissions-boundary \
+  --role-name Vault-PC-S3-BackupRole \
+  --permissions-boundary "$PC_BACKUP_BOUNDARY_ARN"
+
+aws iam put-role-permissions-boundary \
+  --role-name Vault-Phone-S3-BackupRole \
+  --permissions-boundary "$PHONE_BACKUP_BOUNDARY_ARN"
+
+aws iam get-role --role-name Vault-PC-S3-BackupRole \
+  --query '{RoleName:Role.RoleName,Boundary:Role.PermissionsBoundary.PermissionsBoundaryArn}'
+
+aws iam get-role --role-name Vault-Phone-S3-BackupRole \
+  --query '{RoleName:Role.RoleName,Boundary:Role.PermissionsBoundary.PermissionsBoundaryArn}'
+```
+
+Do not grant `iam:PutRolePolicy` to either completion revoker until these two boundary
+ARNs are visibly attached to the exact backup roles.
+
 Verify there is no cross-bucket resource ARN in either policy:
 
 ```bash
@@ -1696,6 +2320,116 @@ aws iam put-role-policy \
   --policy-document file:///tmp/vault-phone-lambda-security-policy.json
 ```
 
+#### 22.12.7A Grant completion revokers and status Lambda exact least privilege
+
+First re-read the permissions-boundary ARN on both backup roles. Stop if either result is
+empty:
+
+```bash
+aws iam get-role --role-name Vault-PC-S3-BackupRole \
+  --query 'Role.PermissionsBoundary.PermissionsBoundaryArn' --output text
+aws iam get-role --role-name Vault-Phone-S3-BackupRole \
+  --query 'Role.PermissionsBoundary.PermissionsBoundaryArn' --output text
+```
+
+Create the PC completion policy:
+
+```bash
+cat > /tmp/vault-pc-completion-policy.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadAndUpdateOwnCompletionState",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+      "Resource": "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/$SLOT_TABLE"
+    },
+    {
+      "Sid": "ListOnlyOwnCompletionPrefixes",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::$PC_BUCKET",
+      "Condition": {"StringLike": {"s3:prefix": ["snapshots/*", "locks/*"]}}
+    },
+    {
+      "Sid": "WriteOnlyOwnRoleRevocationPolicy",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePolicy",
+      "Resource": "$PC_BACKUP_ROLE_ARN"
+    }
+  ]
+}
+JSON
+```
+
+Create the symmetric Phone policy:
+
+```bash
+cat > /tmp/vault-phone-completion-policy.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ReadAndUpdateOwnCompletionState",
+      "Effect": "Allow",
+      "Action": ["dynamodb:GetItem", "dynamodb:UpdateItem"],
+      "Resource": "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/$SLOT_TABLE"
+    },
+    {
+      "Sid": "ListOnlyOwnCompletionPrefixes",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::$PHONE_BUCKET",
+      "Condition": {"StringLike": {"s3:prefix": ["snapshots/*", "locks/*"]}}
+    },
+    {
+      "Sid": "WriteOnlyOwnRoleRevocationPolicy",
+      "Effect": "Allow",
+      "Action": "iam:PutRolePolicy",
+      "Resource": "$PHONE_BACKUP_ROLE_ARN"
+    }
+  ]
+}
+JSON
+```
+
+The status Lambda receives only a consistent `GetItem` path to the slot table:
+
+```bash
+cat > /tmp/vault-completion-status-policy.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Sid": "ReadCompletionStateOnly",
+    "Effect": "Allow",
+    "Action": "dynamodb:GetItem",
+    "Resource": "arn:aws:dynamodb:$AWS_REGION:$AWS_ACCOUNT_ID:table/$SLOT_TABLE"
+  }]
+}
+JSON
+
+aws iam put-role-policy \
+  --role-name Vault-PC-S3-Completion-ExecutionRole \
+  --policy-name Vault-PC-S3-Completion-LeastPrivilege \
+  --policy-document file:///tmp/vault-pc-completion-policy.json
+
+aws iam put-role-policy \
+  --role-name Vault-Phone-S3-Completion-ExecutionRole \
+  --policy-name Vault-Phone-S3-Completion-LeastPrivilege \
+  --policy-document file:///tmp/vault-phone-completion-policy.json
+
+aws iam put-role-policy \
+  --role-name Vault-S3-Completion-Status-ExecutionRole \
+  --policy-name Vault-S3-Completion-Status-ReadOnly \
+  --policy-document file:///tmp/vault-completion-status-policy.json
+```
+
+The completion roles deliberately have no `sts:AssumeRole`, no S3 object read/write,
+and no permission over the opposite backup role or bucket. `iam:PutRolePolicy` is the
+minimum AWS control used here to install the documented role-session revocation deny;
+the exact backup-role permissions boundary is the compensating maximum-permission cap.
+
 #### 22.12.8 Package the Lambda code
 
 On the administrator workstation:
@@ -1728,6 +2462,58 @@ unzip -l /tmp/vault-s3-gate.zip | sed -n '1,30p'
 
 The ZIP root must contain `index.mjs`; do not accidentally create a ZIP whose root is
 `vault-lambda-gate/index.mjs`.
+
+#### 22.12.8A Package the completion-revoker and completion-status Lambda code
+
+Package the exact completion source from Section 22.7A:
+
+```bash
+rm -rf ~/vault-lambda-completion
+mkdir -p ~/vault-lambda-completion
+cd ~/vault-lambda-completion
+npm init -y
+npm install @aws-sdk/client-dynamodb @aws-sdk/client-iam @aws-sdk/client-s3
+```
+
+Copy Section 22.7A's exact `index.mjs` into:
+
+```text
+~/vault-lambda-completion/index.mjs
+```
+
+Then:
+
+```bash
+node --check index.mjs
+zip -r /tmp/vault-s3-completion.zip \
+  index.mjs package.json package-lock.json node_modules
+```
+
+Package the exact read-only status source from Section 22.7B separately:
+
+```bash
+rm -rf ~/vault-lambda-completion-status
+mkdir -p ~/vault-lambda-completion-status
+cd ~/vault-lambda-completion-status
+npm init -y
+npm install @aws-sdk/client-dynamodb
+```
+
+Copy Section 22.7B's exact `index.mjs` into:
+
+```text
+~/vault-lambda-completion-status/index.mjs
+```
+
+Then:
+
+```bash
+node --check index.mjs
+zip -r /tmp/vault-s3-completion-status.zip \
+  index.mjs package.json package-lock.json node_modules
+```
+
+For both ZIP files, `index.mjs` must be at ZIP root.
 
 #### 22.12.9 Collect the two VPS public keys for Lambda configuration
 
@@ -1845,6 +2631,244 @@ for FN in Vault-PC-S3-Gate Vault-Phone-S3-Gate; do
 done
 ```
 
+#### 22.12.10A Create and configure completion/status functions
+
+Create the two device-specific completion revokers and the shared read-only status
+function:
+
+```bash
+aws lambda create-function \
+  --region "$AWS_REGION" \
+  --function-name Vault-PC-S3-Completion-Revoker \
+  --runtime nodejs22.x \
+  --handler index.handler \
+  --role "$PC_COMPLETION_ROLE_ARN" \
+  --zip-file fileb:///tmp/vault-s3-completion.zip \
+  --timeout 30 \
+  --memory-size 256
+
+aws lambda create-function \
+  --region "$AWS_REGION" \
+  --function-name Vault-Phone-S3-Completion-Revoker \
+  --runtime nodejs22.x \
+  --handler index.handler \
+  --role "$PHONE_COMPLETION_ROLE_ARN" \
+  --zip-file fileb:///tmp/vault-s3-completion.zip \
+  --timeout 30 \
+  --memory-size 256
+
+aws lambda create-function \
+  --region "$AWS_REGION" \
+  --function-name Vault-S3-Completion-Status \
+  --runtime nodejs22.x \
+  --handler index.handler \
+  --role "$COMPLETION_STATUS_ROLE_ARN" \
+  --zip-file fileb:///tmp/vault-s3-completion-status.zip \
+  --timeout 10 \
+  --memory-size 128
+```
+
+Create environment files:
+
+```bash
+python3 - <<'PY'
+import json, os
+
+configs = {
+    '/tmp/pc-completion-env.json': {
+        'DEVICE': 'pc',
+        'TABLE_NAME': os.environ['SLOT_TABLE'],
+        'BUCKET_NAME': os.environ['PC_BUCKET'],
+        'BACKUP_ROLE_NAME': 'Vault-PC-S3-BackupRole',
+    },
+    '/tmp/phone-completion-env.json': {
+        'DEVICE': 'phone',
+        'TABLE_NAME': os.environ['SLOT_TABLE'],
+        'BUCKET_NAME': os.environ['PHONE_BUCKET'],
+        'BACKUP_ROLE_NAME': 'Vault-Phone-S3-BackupRole',
+    },
+    '/tmp/completion-status-env.json': {
+        'TABLE_NAME': os.environ['SLOT_TABLE'],
+    },
+}
+for path, variables in configs.items():
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'Variables': variables}, f, separators=(',', ':'))
+PY
+
+aws lambda update-function-configuration \
+  --region "$AWS_REGION" \
+  --function-name Vault-PC-S3-Completion-Revoker \
+  --environment file:///tmp/pc-completion-env.json
+
+aws lambda update-function-configuration \
+  --region "$AWS_REGION" \
+  --function-name Vault-Phone-S3-Completion-Revoker \
+  --environment file:///tmp/phone-completion-env.json
+
+aws lambda update-function-configuration \
+  --region "$AWS_REGION" \
+  --function-name Vault-S3-Completion-Status \
+  --environment file:///tmp/completion-status-env.json
+
+for FN in \
+  Vault-PC-S3-Completion-Revoker \
+  Vault-Phone-S3-Completion-Revoker \
+  Vault-S3-Completion-Status; do
+  aws lambda wait function-active-v2 --region "$AWS_REGION" --function-name "$FN"
+done
+```
+
+#### 22.12.10B Configure exact S3 snapshot/lock event notifications
+
+Grant only the matching bucket permission to invoke its matching completion revoker:
+
+```bash
+aws lambda add-permission \
+  --region "$AWS_REGION" \
+  --function-name Vault-PC-S3-Completion-Revoker \
+  --statement-id AllowPCBucketCompletionEvents \
+  --action lambda:InvokeFunction \
+  --principal s3.amazonaws.com \
+  --source-arn "arn:aws:s3:::$PC_BUCKET" \
+  --source-account "$AWS_ACCOUNT_ID"
+
+aws lambda add-permission \
+  --region "$AWS_REGION" \
+  --function-name Vault-Phone-S3-Completion-Revoker \
+  --statement-id AllowPhoneBucketCompletionEvents \
+  --action lambda:InvokeFunction \
+  --principal s3.amazonaws.com \
+  --source-arn "arn:aws:s3:::$PHONE_BUCKET" \
+  --source-account "$AWS_ACCOUNT_ID"
+
+export PC_COMPLETION_FN_ARN="$(aws lambda get-function \
+  --region "$AWS_REGION" --function-name Vault-PC-S3-Completion-Revoker \
+  --query 'Configuration.FunctionArn' --output text)"
+export PHONE_COMPLETION_FN_ARN="$(aws lambda get-function \
+  --region "$AWS_REGION" --function-name Vault-Phone-S3-Completion-Revoker \
+  --query 'Configuration.FunctionArn' --output text)"
+```
+
+Create exact notification documents:
+
+```bash
+cat > /tmp/vault-pc-completion-notifications.json <<JSON
+{
+  "LambdaFunctionConfigurations": [
+    {
+      "Id": "VaultPCSnapshotCreated",
+      "LambdaFunctionArn": "$PC_COMPLETION_FN_ARN",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [{"Name": "prefix", "Value": "snapshots/"}]}}
+    },
+    {
+      "Id": "VaultPCLockRemoved",
+      "LambdaFunctionArn": "$PC_COMPLETION_FN_ARN",
+      "Events": ["s3:ObjectRemoved:*"],
+      "Filter": {"Key": {"FilterRules": [{"Name": "prefix", "Value": "locks/"}]}}
+    }
+  ]
+}
+JSON
+
+cat > /tmp/vault-phone-completion-notifications.json <<JSON
+{
+  "LambdaFunctionConfigurations": [
+    {
+      "Id": "VaultPhoneSnapshotCreated",
+      "LambdaFunctionArn": "$PHONE_COMPLETION_FN_ARN",
+      "Events": ["s3:ObjectCreated:*"],
+      "Filter": {"Key": {"FilterRules": [{"Name": "prefix", "Value": "snapshots/"}]}}
+    },
+    {
+      "Id": "VaultPhoneLockRemoved",
+      "LambdaFunctionArn": "$PHONE_COMPLETION_FN_ARN",
+      "Events": ["s3:ObjectRemoved:*"],
+      "Filter": {"Key": {"FilterRules": [{"Name": "prefix", "Value": "locks/"}]}}
+    }
+  ]
+}
+JSON
+
+aws s3api put-bucket-notification-configuration \
+  --bucket "$PC_BUCKET" \
+  --notification-configuration file:///tmp/vault-pc-completion-notifications.json
+
+aws s3api put-bucket-notification-configuration \
+  --bucket "$PHONE_BUCKET" \
+  --notification-configuration file:///tmp/vault-phone-completion-notifications.json
+
+aws s3api get-bucket-notification-configuration --bucket "$PC_BUCKET"
+aws s3api get-bucket-notification-configuration --bucket "$PHONE_BUCKET"
+```
+
+**Warning:** `put-bucket-notification-configuration` replaces the bucket's notification
+configuration. In this canonical build these two Vault notifications are the intended
+configuration. If the bucket already has unrelated notifications, merge them into the
+JSON deliberately instead of overwriting them blindly.
+
+A snapshot-created event alone must not revoke. The revoker requires that snapshot
+evidence plus a later `locks/` removal event for the same exact consumed slot window.
+Duplicate and out-of-order delivery are expected inputs; the DynamoDB transitions are
+idempotent and the first `completion_revoke_cutoff` is immutable.
+
+#### 22.12.10C Configure five-minute completion reconciliation
+
+The normal path is S3 event driven. Add a low-frequency reconciliation path so a delayed
+or missed event does not silently preserve a completed authorization window:
+
+```bash
+aws events put-rule \
+  --region "$AWS_REGION" \
+  --name Vault-PC-S3-Completion-Reconcile \
+  --schedule-expression 'rate(5 minutes)' \
+  --state ENABLED
+
+aws events put-rule \
+  --region "$AWS_REGION" \
+  --name Vault-Phone-S3-Completion-Reconcile \
+  --schedule-expression 'rate(5 minutes)' \
+  --state ENABLED
+
+export PC_RECONCILE_RULE_ARN="$(aws events describe-rule \
+  --region "$AWS_REGION" --name Vault-PC-S3-Completion-Reconcile \
+  --query Arn --output text)"
+export PHONE_RECONCILE_RULE_ARN="$(aws events describe-rule \
+  --region "$AWS_REGION" --name Vault-Phone-S3-Completion-Reconcile \
+  --query Arn --output text)"
+
+aws lambda add-permission \
+  --region "$AWS_REGION" \
+  --function-name Vault-PC-S3-Completion-Revoker \
+  --statement-id AllowPCCompletionReconcile \
+  --action lambda:InvokeFunction \
+  --principal events.amazonaws.com \
+  --source-arn "$PC_RECONCILE_RULE_ARN"
+
+aws lambda add-permission \
+  --region "$AWS_REGION" \
+  --function-name Vault-Phone-S3-Completion-Revoker \
+  --statement-id AllowPhoneCompletionReconcile \
+  --action lambda:InvokeFunction \
+  --principal events.amazonaws.com \
+  --source-arn "$PHONE_RECONCILE_RULE_ARN"
+
+aws events put-targets \
+  --region "$AWS_REGION" \
+  --rule Vault-PC-S3-Completion-Reconcile \
+  --targets "Id=1,Arn=$PC_COMPLETION_FN_ARN,Input={\"reconcile\":true}"
+
+aws events put-targets \
+  --region "$AWS_REGION" \
+  --rule Vault-Phone-S3-Completion-Reconcile \
+  --targets "Id=1,Arn=$PHONE_COMPLETION_FN_ARN,Input={\"reconcile\":true}"
+```
+
+The reconciliation logic uses strong S3 list visibility only as missing-event recovery.
+It must not synthesize old completion evidence when a newer same-device issuance exists.
+The event-derived lock-removal timestamp remains the preferred cutoff.
+
 #### 22.12.11 Create the two Identity Center permission sets
 
 In **IAM Identity Center → Permission sets**:
@@ -1859,19 +2883,26 @@ In **IAM Identity Center → Permission sets**:
   "Statement": [{
     "Effect": "Allow",
     "Action": "lambda:InvokeFunction",
-    "Resource": "arn:aws:lambda:us-east-1:123456789012:function:Vault-PC-S3-Gate"
+    "Resource": [
+      "arn:aws:lambda:us-east-1:123456789012:function:Vault-PC-S3-Gate",
+      "arn:aws:lambda:us-east-1:123456789012:function:Vault-S3-Completion-Status"
+    ]
   }]
 }
 ```
 
 4. Assign the dedicated Vault user to the AWS account with this permission set.
-5. Create `Vault-Phone-Gate-Invoke` in the same way, pointing only to
-   `Vault-Phone-S3-Gate`.
+5. Create `Vault-Phone-Gate-Invoke` with the same two-resource shape, replacing the PC
+   gate ARN with `Vault-Phone-S3-Gate` and retaining the shared
+   `Vault-S3-Completion-Status` ARN.
 6. Assign the same dedicated Vault user, or separate device users if you deliberately
    choose that operational model.
 
 The security boundary is the permission-set role policy, not the friendly profile name.
-Do not add S3 or `sts:AssumeRole` to these permission sets.
+The status Lambda is read-only and is intentionally invokable from both device profiles
+because each clean primary must inspect the **opposite** device's exact shared S3 session
+state before requesting close-only peer admission shutdown. Do not add S3, DynamoDB,
+IAM, or `sts:AssumeRole` to these permission sets.
 
 On the PC:
 
@@ -2099,6 +3130,10 @@ Run these tests before repository initialization:
 Test A — one signature missing
 Expected: Lambda rejects proof; no DynamoDB row for that slot.
 
+Test A2 — own SSO/MFA succeeds but the opposite primary never joins `s3`
+Expected: no dual-signed proof exists, the gate is never validly invoked, and no daily
+slot or STS credential is created. MFA alone is not backup-opening authority.
+
 Test B — wrong target
 Send an S3_PHONE proof to the PC gate.
 Expected: Lambda rejects `wrong proof target`; no PC slot consumed.
@@ -2107,7 +3142,7 @@ Test C — wrong calendar date
 Expected: Lambda rejects `calendar date mismatch`.
 
 Test D — first valid invocation
-Expected: daily row appears; one STS credential set returned.
+Expected: daily row appears with `completion_state=OPEN`; one STS credential set returned.
 
 Test E — second valid invocation, same device/day
 Expected: `DailySlotConsumed`; no second STS result.
@@ -2120,15 +3155,64 @@ Expected: AccessDenied because `aws:SourceIp` condition fails.
 
 Test H — emergency deny policy attached
 Expected: both backup roles receive S3 AccessDenied regardless of their ordinary allow.
+
+Test I — snapshot-created completion event only
+Expected: `snapshot_seen_at` may be recorded, but state remains OPEN; no
+`AWSRevokeOlderSessions` cutoff is created yet.
+
+Test J — lock-removal event arrives before snapshot-created event
+Expected: duplicate/out-of-order evidence is retained idempotently; revocation occurs
+only after both facts exist and `lock_removed_at >= snapshot_seen_at`.
+
+Test K — successful snapshot plus later repository-lock removal
+Expected: exact slot transitions OPEN -> REVOKING -> REVOKED, the first
+`completion_revoke_cutoff` remains immutable, and the matching backup role has inline
+policy `AWSRevokeOlderSessions`.
+
+Test L — old STS reused through the approved VPS after Test K
+Expected: after IAM policy propagation, S3 returns AccessDenied even though the original
+STS expiration timestamp is still in the future. Do not mint a replacement session.
+
+Test M — read-only completion status exact binding
+Expected: the correct device/date/exact shared `session_expires_at` returns REVOKED after
+Test K. A changed deadline returns `ABSENT_OR_SESSION_MISMATCH`.
+
+Test N — cross-role revoker privilege
+Expected: the PC completion execution role cannot `iam:PutRolePolicy` on the Phone backup
+role and cannot list the Phone bucket; Phone is symmetric.
+
+Test O — permissions-boundary containment
+Expected: both backup roles still show the exact boundary ARN. A deliberately broad
+inline Allow in a disposable validation setup does not expand effective permissions past
+the boundary's exact bucket/fixed-egress envelope. Remove the disposable test Allow.
+
+Test P — signed cross-device close with local DONE suppressed
+Keep the target S3 phase helper connected after its successful backup. After AWS reports
+that target's exact session REVOKED, let the clean opposite workflow issue CLOSE_PEER.
+Expected: target coordinator status becomes CLOSED s3 and target proxy authorization is
+DENY without target cooperation.
+
+Test Q — close replay/wrong-session binding
+Replay an expired close payload or alter its `session_expires_at`.
+Expected: peer coordinator rejects it. Repeating the same still-fresh valid close is
+idempotent and cannot reopen anything.
 ```
 
-Inspect the table after Test D/E:
+Inspect the table after the issuance and completion tests:
 
 ```bash
 aws dynamodb scan \
   --region "$AWS_REGION" \
   --table-name "$SLOT_TABLE" \
-  --projection-expression 'pk,ceremony_id,consumed_at'
+  --projection-expression 'pk,ceremony_id,consumed_at,session_expires_at,completion_state,snapshot_seen_at,lock_removed_at,completion_revoke_cutoff,completion_revoked_at'
+
+aws iam get-role-policy \
+  --role-name Vault-PC-S3-BackupRole \
+  --policy-name AWSRevokeOlderSessions
+
+aws iam get-role-policy \
+  --role-name Vault-Phone-S3-BackupRole \
+  --policy-name AWSRevokeOlderSessions
 ```
 
 Never run these “valid invocation” tests with a production day's backup slot unless you
@@ -3175,6 +4259,15 @@ type proofPayload struct {
 	SessionExpiresAt string `json:"session_expires_at"`
 }
 
+type closePayload struct {
+	Version          int    `json:"version"`
+	Phase            string `json:"phase"`
+	TargetRole       string `json:"target_role"`
+	IssuedAt         string `json:"issued_at"`
+	ExpiresAt        string `json:"expires_at"`
+	SessionExpiresAt string `json:"session_expires_at"`
+}
+
 type proofBundle struct {
 	Payload        string `json:"payload"`
 	PCSignature    string `json:"pc_signature"`
@@ -3306,6 +4399,17 @@ func roleForTarget(target string) (string, bool) {
 		return "phone", true
 	}
 	return "", false
+}
+
+func oppositeRole(role string) (string, bool) {
+	switch role {
+	case "pc":
+		return "phone", true
+	case "phone":
+		return "pc", true
+	default:
+		return "", false
+	}
 }
 
 func randomHex(n int) (string, error) {
@@ -3732,6 +4836,107 @@ func (s *service) buildBundle(phase string) (string, error) {
 	return base64.StdEncoding.EncodeToString(bundleRaw), nil
 }
 
+func validateClosePayload(raw []byte, expectedTargetRole string, activeDeadline time.Time) (closePayload, error) {
+	var p closePayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return p, errors.New("invalid close payload JSON")
+	}
+	if p.Version != 1 || p.Phase != "s3" || p.TargetRole != expectedTargetRole {
+		return p, errors.New("invalid close payload target")
+	}
+	issued, err := time.Parse(time.RFC3339, p.IssuedAt)
+	if err != nil {
+		return p, errors.New("invalid close issued_at")
+	}
+	expires, err := time.Parse(time.RFC3339, p.ExpiresAt)
+	if err != nil {
+		return p, errors.New("invalid close expires_at")
+	}
+	now := time.Now().UTC()
+	if expires.Sub(issued) <= 0 || expires.Sub(issued) > 90*time.Second {
+		return p, errors.New("invalid close lifetime")
+	}
+	if now.Before(issued.Add(-30*time.Second)) || now.After(expires) {
+		return p, errors.New("close payload outside freshness window")
+	}
+	deadline, err := time.Parse(time.RFC3339, p.SessionExpiresAt)
+	if err != nil {
+		return p, errors.New("invalid close session_expires_at")
+	}
+	if !deadline.Equal(activeDeadline) {
+		return p, errors.New("close session deadline mismatch")
+	}
+	return p, nil
+}
+
+func (s *service) makePeerClosePayload() ([]byte, []byte, error) {
+	deadline, ok := s.currentSessionDeadline()
+	if !ok {
+		return nil, nil, errors.New("no active Vault session")
+	}
+	targetRole, ok := oppositeRole(s.role)
+	if !ok {
+		return nil, nil, errors.New("invalid local role")
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	p := closePayload{
+		Version:          1,
+		Phase:            "s3",
+		TargetRole:       targetRole,
+		IssuedAt:         now.Format(time.RFC3339),
+		ExpiresAt:        now.Add(60 * time.Second).Format(time.RFC3339),
+		SessionExpiresAt: deadline.Format(time.RFC3339),
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return nil, nil, err
+	}
+	return raw, ed25519.Sign(s.privateKey, raw), nil
+}
+
+func (s *service) requestPeerClose() error {
+	raw, sig, err := s.makePeerClosePayload()
+	if err != nil {
+		return err
+	}
+	conn, err := net.DialTimeout("tcp", s.peerAddr, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(8 * time.Second))
+	line := "CLOSE " + base64.StdEncoding.EncodeToString(raw) + " " + base64.StdEncoding.EncodeToString(sig) + "\n"
+	if _, err := io.WriteString(conn, line); err != nil {
+		return err
+	}
+	reply, err := readLine(bufio.NewReaderSize(conn, 1024), 1024)
+	if err != nil {
+		return err
+	}
+	if reply != "CLOSED s3" {
+		return fmt.Errorf("peer rejected close request: %s", reply)
+	}
+	return nil
+}
+
+func (s *service) closeLocalS3ForDeadline(deadline time.Time) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.sessionOpenLocked(time.Now().UTC()) || !s.sessionDeadline.Equal(deadline) {
+		return errors.New("no matching active Vault session")
+	}
+	st := s.phases["s3"]
+	if st == nil || st.done {
+		return nil
+	}
+	st.done = true
+	st.connected = false
+	if st.conn != nil {
+		_ = st.conn.Close()
+	}
+	return nil
+}
+
 func (s *service) handlePeer(conn net.Conn) {
 	defer conn.Close()
 	if remoteHost(conn) != s.peerWGIP {
@@ -3744,8 +4949,8 @@ func (s *service) handlePeer(conn net.Conn) {
 		return
 	}
 	fields := strings.Fields(line)
-	if len(fields) != 3 || fields[0] != "SIGN" {
-		_, _ = io.WriteString(conn, "REJECT expected SIGN\n")
+	if len(fields) != 3 {
+		_, _ = io.WriteString(conn, "REJECT expected SIGN or CLOSE\n")
 		return
 	}
 	raw, err := base64.StdEncoding.DecodeString(fields[1])
@@ -3758,32 +4963,53 @@ func (s *service) handlePeer(conn net.Conn) {
 		_, _ = io.WriteString(conn, "REJECT peer signature\n")
 		return
 	}
-	expectedRequesterRole := "pc"
-	if s.role == "pc" {
-		expectedRequesterRole = "phone"
-	}
-	payload, err := validateFreshPayload(raw, expectedRequesterRole)
-	if err != nil {
-		_, _ = io.WriteString(conn, "REJECT "+err.Error()+"\n")
-		return
-	}
-	phase, _ := phaseForTarget(payload.Target)
-	sourceIP, ready := s.localReadySource(phase)
-	if !ready {
-		_, _ = io.WriteString(conn, "WAIT\n")
-		return
-	}
-	if payload.Target == "S3_PC" {
-		if err := s.activateAnchoredSession(payload, sourceIP); err != nil {
+
+	switch strings.ToUpper(fields[0]) {
+	case "SIGN":
+		expectedRequesterRole := "pc"
+		if s.role == "pc" {
+			expectedRequesterRole = "phone"
+		}
+		payload, err := validateFreshPayload(raw, expectedRequesterRole)
+		if err != nil {
 			_, _ = io.WriteString(conn, "REJECT "+err.Error()+"\n")
 			return
 		}
-	} else if err := s.requireActiveSession(payload); err != nil {
-		_, _ = io.WriteString(conn, "REJECT "+err.Error()+"\n")
-		return
+		phase, _ := phaseForTarget(payload.Target)
+		sourceIP, ready := s.localReadySource(phase)
+		if !ready {
+			_, _ = io.WriteString(conn, "WAIT\n")
+			return
+		}
+		if payload.Target == "S3_PC" {
+			if err := s.activateAnchoredSession(payload, sourceIP); err != nil {
+				_, _ = io.WriteString(conn, "REJECT "+err.Error()+"\n")
+				return
+			}
+		} else if err := s.requireActiveSession(payload); err != nil {
+			_, _ = io.WriteString(conn, "REJECT "+err.Error()+"\n")
+			return
+		}
+		sig := ed25519.Sign(s.privateKey, raw)
+		_, _ = io.WriteString(conn, "OK "+base64.StdEncoding.EncodeToString(sig)+"\n")
+	case "CLOSE":
+		deadline, ok := s.currentSessionDeadline()
+		if !ok {
+			_, _ = io.WriteString(conn, "REJECT no active Vault session\n")
+			return
+		}
+		if _, err := validateClosePayload(raw, s.role, deadline); err != nil {
+			_, _ = io.WriteString(conn, "REJECT "+err.Error()+"\n")
+			return
+		}
+		if err := s.closeLocalS3ForDeadline(deadline); err != nil {
+			_, _ = io.WriteString(conn, "REJECT "+err.Error()+"\n")
+			return
+		}
+		_, _ = io.WriteString(conn, "CLOSED s3\n")
+	default:
+		_, _ = io.WriteString(conn, "REJECT expected SIGN or CLOSE\n")
 	}
-	sig := ed25519.Sign(s.privateKey, raw)
-	_, _ = io.WriteString(conn, "OK "+base64.StdEncoding.EncodeToString(sig)+"\n")
 }
 
 func (s *service) ensureBundle(phase string, st *phaseState) error {
@@ -3914,8 +5140,24 @@ func (s *service) handleLocal(conn net.Conn) {
 		return
 	}
 	fields := strings.Fields(line)
+	if len(fields) == 3 && strings.ToUpper(fields[0]) == "CLOSE_PEER" {
+		if strings.ToLower(fields[1]) != "s3" {
+			_, _ = io.WriteString(conn, "REJECT close phase\n")
+			return
+		}
+		if !s.authenticateToken(fields[2]) {
+			_, _ = io.WriteString(conn, "REJECT token\n")
+			return
+		}
+		if err := s.requestPeerClose(); err != nil {
+			_, _ = io.WriteString(conn, "ERROR "+err.Error()+"\n")
+			return
+		}
+		_, _ = io.WriteString(conn, "CLOSED peer-s3\n")
+		return
+	}
 	if len(fields) != 3 || strings.ToUpper(fields[0]) != "JOIN" {
-		_, _ = io.WriteString(conn, "REJECT expected JOIN <s3|rhel> <token>\n")
+		_, _ = io.WriteString(conn, "REJECT expected JOIN <s3|rhel> <token> or CLOSE_PEER s3 <token>\n")
 		return
 	}
 	phase := strings.ToLower(fields[1])
@@ -4239,8 +5481,10 @@ It leaves persisted partial state and the Vault session remains fail-closed. The
 AWS/RHEL window has still ended; the unresolved event is an operator incident because
 fresh Tailscale reauthentication cannot be proven.
 
-Suppressing `DONE` can therefore delay early cleanup only until the signed hard deadline.
-It cannot move the deadline and cannot create a second daily AWS/RHEL slot.
+Suppressing cooperative `DONE rhel` can therefore delay early node-expiry cleanup only
+until the signed hard deadline. It cannot move the deadline and cannot create a second
+daily AWS/RHEL slot. S3 successful-completion containment is handled separately by the
+AWS completion state and signed peer-close path.
 
 ### 23.6 Deploy the exact-host S3 CONNECT proxy on each VPS
 
@@ -4753,6 +5997,66 @@ kill -TERM "$PHASE_PID"
 wait "$PHASE_PID" || true
 ```
 
+### 23.7A Install the close-only peer S3 helper
+
+Install this same helper on PC and Phone as `~/bin/vault-close-peer.py`:
+
+```python
+#!/usr/bin/env python3
+import argparse
+from pathlib import Path
+import socket
+import sys
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument('--host', required=True)
+    ap.add_argument('--port', type=int, default=8889)
+    ap.add_argument('--token-file', required=True)
+    args = ap.parse_args()
+
+    token = Path(args.token_file).read_text(encoding='ascii').strip()
+    if len(token) != 64 or any(c not in '0123456789abcdefABCDEF' for c in token):
+        raise SystemExit('phase token must be exactly 64 hexadecimal characters')
+
+    with socket.create_connection((args.host, args.port), timeout=10) as sock:
+        sock.settimeout(10)
+        sock.sendall(f'CLOSE_PEER s3 {token}\n'.encode('ascii'))
+        reply = sock.makefile('rb', buffering=0).readline(1024)
+
+    text = reply.decode('ascii', errors='replace').strip()
+    if text != 'CLOSED peer-s3':
+        print(f'peer close rejected: {text}', file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == '__main__':
+    sys.exit(main())
+```
+
+Install and syntax-check:
+
+```bash
+chmod 700 "$HOME/bin/vault-close-peer.py"
+python3 -m py_compile "$HOME/bin/vault-close-peer.py"
+```
+
+This helper does **not** accept a target role. The local coordinator derives the
+opposite role from its own configured `VAULT_ROLE`, signs a short-lived close payload,
+and sends it over `wg-cross`. The receiving coordinator accepts the close only from the
+exact peer WireGuard IP, only with the opposite VPS Ed25519 signature, only for phase
+`s3`, only for its own role, and only when the payload carries the exact active shared
+`session_expires_at` value.
+
+`CLOSE_PEER` can close admission only. It cannot request a proof, create an STS session,
+open RHEL, reset a daily slot, or extend the hard deadline. A compromised primary that
+owns its own phase token can therefore abuse this path for denial of service against the
+opposite S3 phase; under the documented single-compromise threat model that fail-safe
+close-only authority is accepted instead of giving the compromised target a containment
+veto.
+
 ### 23.8 Firewall invariant
 
 Canonical Tailscale/managed-DERP profile:
@@ -4788,7 +6092,10 @@ Before repository initialization:
 [ ] second PC invocation/day → DailySlotConsumed
 [ ] Phone slot remains independent
 [ ] STS failure after slot consumption → no Lambda/STS retry
-[ ] same successful STS credential survives S3 request retry until expiry
+[ ] same issued STS credential supports transient S3 retry only before successful completion revocation and the signed hard deadline
+[ ] own SSO/MFA with the opposite primary absent cannot produce a valid fresh S3 issuance proof
+[ ] snapshot creation alone does not revoke; later lock removal completes the AWS-side completion condition
+[ ] exact-session REVOKED status lets the clean opposite primary close target S3 proxy admission through signed CLOSE_PEER
 [ ] PC role cannot access Phone bucket
 [ ] Phone role cannot access PC bucket
 [ ] S3 request from a non-approved public IP → denied
@@ -4798,7 +6105,9 @@ Before repository initialization:
 The key distinction must remain explicit:
 
 > **credential issuance is non-retryable after daily-slot consumption; S3 data-plane
-> operations are retryable with the already-issued credential.**
+> operations may retry with the already-issued credential only while that backup remains
+> incomplete, the exact completion state is not REVOKED, and the signed hard deadline
+> remains open. Successful completion deliberately cuts off reuse of the old session.**
 
 ## Section 24 - Two Independent Tailscale Tailnets, Tailnet Lock, Tailscale-hosted DERP, and Exact Own-Device Expiry
 
@@ -5790,9 +7099,10 @@ On Android, use the Tailscale app's reauthentication/sign-in flow when the expir
 Phone identity prompts for renewal. Do not replace this with a reusable auth key in the
 Vault daily script.
 
-Repeat a separate test while suppressing endpoint `DONE`. The persistent signed one-hour
-deadline must independently create the same `expiry.intent`, invoke the exact-device
-helper, and expire the own primary. `DONE` is an early-close optimization only.
+Repeat a separate test while suppressing cooperative `DONE rhel`. The persistent signed
+one-hour deadline must independently create the same `expiry.intent`, invoke the exact-
+device helper, and expire the own primary. For node-expiry cleanup, `DONE rhel` is an
+early-close optimization only; S3 successful-completion containment is tested separately.
 
 Then inject an invalid intent IP on a disposable test VPS state directory or helper copy:
 
@@ -8376,8 +9686,9 @@ Create `$HOME/bin/vault-daily-pc`:
 ```bash
 #!/usr/bin/env bash
 # vault-daily-pc — one complete PC Vault ceremony: S3 then RHEL.
-# Authorization issuance is fail-closed. Data-plane commands may retry only while
-# reusing the already-issued STS credentials / already-open RHEL backend.
+# Authorization issuance is fail-closed. S3 data-plane commands may retry only while
+# the current backup is incomplete and the exact completion state is not REVOKED. RHEL
+# retries reuse only the already-open backend and remain bounded by the signed deadline.
 set -euo pipefail
 umask 077
 
@@ -8387,6 +9698,8 @@ PHASE_PORT='8889'
 S3_PROXY='http://VPS_TS_IP:8888'
 AWS_PROFILE='vault-pc-gate'
 AWS_FUNCTION='Vault-PC-S3-Gate'
+S3_COMPLETION_STATUS_FUNCTION='Vault-S3-Completion-Status'
+PEER_DEVICE='phone'
 S3_REPOSITORY='s3:s3.us-east-1.amazonaws.com/vault-pc-yourname'
 SOURCE_DIR="$HOME/Vault_PC_Ciphertext"
 RHEL_URL='https://PC_RHEL_TS_IP:8001'
@@ -8405,6 +9718,8 @@ LOG="$LOG_DIR/$(date +%Y%m%d-%H%M%S)-pc-daily.log"
 PHASE_PID=''
 PHASE_NAME=''
 STS_EXPIRATION=''
+S3_CALENDAR_DATE=''
+S3_SESSION_EXPIRES_AT=''
 RHEL_DONE_TOKEN=''
 
 log() { printf '%s %s\n' "$(date -Iseconds)" "$*" | tee -a "$LOG"; }
@@ -8420,7 +9735,10 @@ cleanup() {
   unset HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
   unset RESTIC_PASSWORD RHEL_HTPASSWD RHEL_AUTH RHEL_REPO RHEL_DONE_TOKEN
+  S3_CALENDAR_DATE=''
+  S3_SESSION_EXPIRES_AT=''
   rm -f "$RUN"/*.ready "$RUN"/*-proof.json "$RUN"/sts.json "$RUN"/sts.json.invoke-meta.json
+  rm -f "$RUN"/completion-status-query.json "$RUN"/completion-status.json "$RUN"/completion-status.json.invoke-meta.json
   rm -f "$RUN"/rhel-gate.json "$RUN"/rhel-done.json
   aws sso logout >/dev/null 2>&1 || true
   log "cleanup complete rc=$rc"
@@ -8448,6 +9766,7 @@ command -v aws >/dev/null
 command -v curl >/dev/null
 command -v python3 >/dev/null
 [[ -x "$HOME/bin/vault-phase-proof.py" ]]
+[[ -x "$HOME/bin/vault-close-peer.py" ]]
 [[ -x "$HOME/bin/vault-aws-gate-invoke" ]]
 
 # Device-side inbound prohibition is a local control independent of Tailscale grant policy.
@@ -8491,6 +9810,105 @@ finish_phase() {
     PHASE_PID=''
     PHASE_NAME=''
   fi
+}
+
+load_s3_session_identity() {
+  read -r S3_CALENDAR_DATE S3_SESSION_EXPIRES_AT < <(
+    python3 - "$RUN/s3-proof.json" <<'PY'
+import base64
+import json
+import sys
+
+bundle = json.load(open(sys.argv[1], encoding='utf-8'))
+payload = json.loads(base64.b64decode(bundle['payload'], validate=True))
+calendar_date = payload.get('calendar_date')
+session_expires_at = payload.get('session_expires_at')
+if not isinstance(calendar_date, str) or not isinstance(session_expires_at, str):
+    raise SystemExit('missing S3 session identity')
+print(calendar_date, session_expires_at)
+PY
+  )
+  [[ -n "$S3_CALENDAR_DATE" && -n "$S3_SESSION_EXPIRES_AT" ]]
+  log "S3 session identity date=$S3_CALENDAR_DATE deadline=$S3_SESSION_EXPIRES_AT"
+}
+
+wait_for_peer_s3_completion_and_close() {
+  local target="$1" calendar_date="$2" session_deadline="$3"
+  local query="$RUN/completion-status-query.json"
+  local out="$RUN/completion-status.json"
+  local meta="$RUN/completion-status.json.invoke-meta.json"
+  local deadline_epoch now_epoch rc completed state attempt
+
+  python3 - "$target" "$calendar_date" "$session_deadline" > "$query" <<'PY'
+import json
+import sys
+print(json.dumps({
+    'device': sys.argv[1],
+    'calendar_date': sys.argv[2],
+    'session_expires_at': sys.argv[3],
+}, separators=(',', ':')))
+PY
+  deadline_epoch="$(python3 - "$session_deadline" <<'PY'
+from datetime import datetime
+import sys
+print(int(datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')).timestamp()))
+PY
+)"
+
+  while true; do
+    now_epoch="$(date +%s)"
+    if (( now_epoch >= deadline_epoch )); then
+      fail "peer S3 completion barrier reached the signed hard deadline before ${target} became REVOKED"
+      return 1
+    fi
+
+    rm -f "$out" "$meta"
+    set +e
+    AWS_MAX_ATTEMPTS=3 AWS_RETRY_MODE=standard aws lambda invoke \
+      --profile "$AWS_PROFILE" \
+      --function-name "$S3_COMPLETION_STATUS_FUNCTION" \
+      --cli-binary-format raw-in-base64-out \
+      --payload "fileb://$query" \
+      "$out" > "$meta" 2>>"$LOG"
+    rc=$?
+    set -e
+
+    if (( rc == 0 )); then
+      read -r completed state < <(
+        python3 - "$out" "$meta" <<'PY'
+import json
+import sys
+
+out_path, meta_path = sys.argv[1:]
+meta = json.load(open(meta_path, encoding='utf-8'))
+if meta.get('FunctionError'):
+    print('false ERROR')
+    raise SystemExit
+body = json.load(open(out_path, encoding='utf-8'))
+print('true' if body.get('Completed') is True else 'false', body.get('CompletionState', 'UNKNOWN'))
+PY
+      )
+      if [[ "$completed" == 'true' && "$state" == 'REVOKED' ]]; then
+        log "AWS reports ${target} S3 session REVOKED for the exact shared deadline; requesting close-only peer admission shutdown"
+        for attempt in 1 2 3; do
+          if python3 "$HOME/bin/vault-close-peer.py" \
+            --host "$COORDINATOR" --port "$PHASE_PORT" \
+            --token-file "$PHASE_TOKEN"; then
+            log "peer ${target} S3 admission close acknowledged"
+            return 0
+          fi
+          (( attempt < 3 )) || break
+          sleep 3
+        done
+        fail "AWS confirmed ${target} REVOKED but signed peer close was not acknowledged"
+        return 1
+      fi
+      log "waiting for ${target} S3 completion state; current=${state}"
+    else
+      log "completion-status invoke failed rc=$rc; retrying read-only status poll"
+    fi
+    sleep 3
+  done
 }
 
 load_sts_env() {
@@ -8620,6 +10038,7 @@ export RESTIC_PASSWORD="$(cat "$RESTIC_PW_FILE")"
 # S3 PHASE
 # ---------------------------------------------------------------------------
 start_phase s3
+load_s3_session_identity
 
 log 'starting AWS IAM Identity Center login; complete MFA on the separate authenticator'
 aws sso login --profile "$AWS_PROFILE"
@@ -8645,10 +10064,21 @@ summary_from_json "$S3_JSON" | tee -a "$LOG"
 date -Iseconds > "$STATE_DIR/last-pc-s3-success"
 
 # Do not run routine restic check against Deep Archive. See cold-storage warning.
-unset HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN STS_EXPIRATION
+# Successful restic completion is independently observed by AWS from snapshot creation
+# followed by a later repository-lock removal. Drop local STS values immediately, close
+# our own proxy phase, then keep the MFA-backed SSO session only for the read-only
+# opposite-device completion barrier.
+unset HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
+STS_EXPIRATION=''
 finish_phase
+if ! wait_for_peer_s3_completion_and_close "$PEER_DEVICE" "$S3_CALENDAR_DATE" "$S3_SESSION_EXPIRES_AT"; then
+  fail 'S3 completion barrier failed; do not continue to RHEL in this ceremony'
+  exit 1
+fi
 aws sso logout >/dev/null 2>&1 || true
 rm -f "$RUN/s3-proof.json" "$RUN/s3.ready" "$RUN/sts.json" "$RUN/sts.json.invoke-meta.json"
+rm -f "$RUN/completion-status-query.json" "$RUN/completion-status.json" "$RUN/completion-status.json.invoke-meta.json"
+
 
 # ---------------------------------------------------------------------------
 # RHEL PHASE
@@ -8765,7 +10195,6 @@ finish_phase
 
 log '=== PC Vault daily workflow completed successfully ==='
 notify-send 'Vault PC backup complete' 'S3 and RHEL phases completed.' --icon=security-high 2>/dev/null || true
-
 ```
 
 ```bash
@@ -8815,8 +10244,9 @@ Create `$HOME/.shortcuts/vault-daily-phone`:
 ```bash
 #!/usr/bin/env bash
 # vault-daily-phone — one complete Phone Vault ceremony: S3 then RHEL.
-# Authorization issuance is fail-closed. Data-plane commands may retry only while
-# reusing the already-issued STS credentials / already-open RHEL backend.
+# Authorization issuance is fail-closed. S3 data-plane commands may retry only while
+# the current backup is incomplete and the exact completion state is not REVOKED. RHEL
+# retries reuse only the already-open backend and remain bounded by the signed deadline.
 set -euo pipefail
 umask 077
 termux-wake-lock 2>/dev/null || true
@@ -8827,6 +10257,8 @@ PHASE_PORT='8889'
 S3_PROXY='http://VPS_TS_IP:8888'
 AWS_PROFILE='vault-phone-gate'
 AWS_FUNCTION='Vault-Phone-S3-Gate'
+S3_COMPLETION_STATUS_FUNCTION='Vault-S3-Completion-Status'
+PEER_DEVICE='pc'
 S3_REPOSITORY='s3:s3.us-east-1.amazonaws.com/vault-phone-yourname'
 SOURCE_DIR="$HOME/Vault_Phone_Ciphertext"
 RHEL_URL='https://PHONE_RHEL_TS_IP:8002'
@@ -8845,6 +10277,8 @@ LOG="$LOG_DIR/$(date +%Y%m%d-%H%M%S)-phone-daily.log"
 PHASE_PID=''
 PHASE_NAME=''
 STS_EXPIRATION=''
+S3_CALENDAR_DATE=''
+S3_SESSION_EXPIRES_AT=''
 RHEL_DONE_TOKEN=''
 
 log() { printf '%s %s\n' "$(date -Iseconds)" "$*" | tee -a "$LOG"; }
@@ -8860,7 +10294,10 @@ cleanup() {
   unset HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
   unset RESTIC_PASSWORD RHEL_HTPASSWD RHEL_AUTH RHEL_REPO RHEL_DONE_TOKEN
+  S3_CALENDAR_DATE=''
+  S3_SESSION_EXPIRES_AT=''
   rm -f "$RUN"/*.ready "$RUN"/*-proof.json "$RUN"/sts.json "$RUN"/sts.json.invoke-meta.json
+  rm -f "$RUN"/completion-status-query.json "$RUN"/completion-status.json "$RUN"/completion-status.json.invoke-meta.json
   rm -f "$RUN"/rhel-gate.json "$RUN"/rhel-done.json
   aws sso logout >/dev/null 2>&1 || true
   log "cleanup complete rc=$rc"
@@ -8888,6 +10325,7 @@ command -v aws >/dev/null
 command -v curl >/dev/null
 command -v python3 >/dev/null
 [[ -x "$HOME/bin/vault-phase-proof.py" ]]
+[[ -x "$HOME/bin/vault-close-peer.py" ]]
 [[ -x "$HOME/bin/vault-aws-gate-invoke" ]]
 
 # Device-side inbound prohibition is a local control independent of Tailscale grant policy.
@@ -8933,6 +10371,105 @@ finish_phase() {
     PHASE_PID=''
     PHASE_NAME=''
   fi
+}
+
+load_s3_session_identity() {
+  read -r S3_CALENDAR_DATE S3_SESSION_EXPIRES_AT < <(
+    python3 - "$RUN/s3-proof.json" <<'PY'
+import base64
+import json
+import sys
+
+bundle = json.load(open(sys.argv[1], encoding='utf-8'))
+payload = json.loads(base64.b64decode(bundle['payload'], validate=True))
+calendar_date = payload.get('calendar_date')
+session_expires_at = payload.get('session_expires_at')
+if not isinstance(calendar_date, str) or not isinstance(session_expires_at, str):
+    raise SystemExit('missing S3 session identity')
+print(calendar_date, session_expires_at)
+PY
+  )
+  [[ -n "$S3_CALENDAR_DATE" && -n "$S3_SESSION_EXPIRES_AT" ]]
+  log "S3 session identity date=$S3_CALENDAR_DATE deadline=$S3_SESSION_EXPIRES_AT"
+}
+
+wait_for_peer_s3_completion_and_close() {
+  local target="$1" calendar_date="$2" session_deadline="$3"
+  local query="$RUN/completion-status-query.json"
+  local out="$RUN/completion-status.json"
+  local meta="$RUN/completion-status.json.invoke-meta.json"
+  local deadline_epoch now_epoch rc completed state attempt
+
+  python3 - "$target" "$calendar_date" "$session_deadline" > "$query" <<'PY'
+import json
+import sys
+print(json.dumps({
+    'device': sys.argv[1],
+    'calendar_date': sys.argv[2],
+    'session_expires_at': sys.argv[3],
+}, separators=(',', ':')))
+PY
+  deadline_epoch="$(python3 - "$session_deadline" <<'PY'
+from datetime import datetime
+import sys
+print(int(datetime.fromisoformat(sys.argv[1].replace('Z', '+00:00')).timestamp()))
+PY
+)"
+
+  while true; do
+    now_epoch="$(date +%s)"
+    if (( now_epoch >= deadline_epoch )); then
+      fail "peer S3 completion barrier reached the signed hard deadline before ${target} became REVOKED"
+      return 1
+    fi
+
+    rm -f "$out" "$meta"
+    set +e
+    AWS_MAX_ATTEMPTS=3 AWS_RETRY_MODE=standard aws lambda invoke \
+      --profile "$AWS_PROFILE" \
+      --function-name "$S3_COMPLETION_STATUS_FUNCTION" \
+      --cli-binary-format raw-in-base64-out \
+      --payload "fileb://$query" \
+      "$out" > "$meta" 2>>"$LOG"
+    rc=$?
+    set -e
+
+    if (( rc == 0 )); then
+      read -r completed state < <(
+        python3 - "$out" "$meta" <<'PY'
+import json
+import sys
+
+out_path, meta_path = sys.argv[1:]
+meta = json.load(open(meta_path, encoding='utf-8'))
+if meta.get('FunctionError'):
+    print('false ERROR')
+    raise SystemExit
+body = json.load(open(out_path, encoding='utf-8'))
+print('true' if body.get('Completed') is True else 'false', body.get('CompletionState', 'UNKNOWN'))
+PY
+      )
+      if [[ "$completed" == 'true' && "$state" == 'REVOKED' ]]; then
+        log "AWS reports ${target} S3 session REVOKED for the exact shared deadline; requesting close-only peer admission shutdown"
+        for attempt in 1 2 3; do
+          if python3 "$HOME/bin/vault-close-peer.py" \
+            --host "$COORDINATOR" --port "$PHASE_PORT" \
+            --token-file "$PHASE_TOKEN"; then
+            log "peer ${target} S3 admission close acknowledged"
+            return 0
+          fi
+          (( attempt < 3 )) || break
+          sleep 3
+        done
+        fail "AWS confirmed ${target} REVOKED but signed peer close was not acknowledged"
+        return 1
+      fi
+      log "waiting for ${target} S3 completion state; current=${state}"
+    else
+      log "completion-status invoke failed rc=$rc; retrying read-only status poll"
+    fi
+    sleep 3
+  done
 }
 
 load_sts_env() {
@@ -9062,6 +10599,7 @@ export RESTIC_PASSWORD="$(cat "$RESTIC_PW_FILE")"
 # S3 PHASE
 # ---------------------------------------------------------------------------
 start_phase s3
+load_s3_session_identity
 
 log 'starting AWS IAM Identity Center device-code login; authorize in Android browser and complete MFA'
 aws sso login --profile "$AWS_PROFILE" --use-device-code
@@ -9087,10 +10625,21 @@ summary_from_json "$S3_JSON" | tee -a "$LOG"
 date -Iseconds > "$STATE_DIR/last-phone-s3-success"
 
 # Do not run routine restic check against Deep Archive. See cold-storage warning.
-unset HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN STS_EXPIRATION
+# Successful restic completion is independently observed by AWS from snapshot creation
+# followed by a later repository-lock removal. Drop local STS values immediately, close
+# our own proxy phase, then keep the MFA-backed SSO session only for the read-only
+# opposite-device completion barrier.
+unset HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
+STS_EXPIRATION=''
 finish_phase
+if ! wait_for_peer_s3_completion_and_close "$PEER_DEVICE" "$S3_CALENDAR_DATE" "$S3_SESSION_EXPIRES_AT"; then
+  fail 'S3 completion barrier failed; do not continue to RHEL in this ceremony'
+  exit 1
+fi
 aws sso logout >/dev/null 2>&1 || true
 rm -f "$RUN/s3-proof.json" "$RUN/s3.ready" "$RUN/sts.json" "$RUN/sts.json.invoke-meta.json"
+rm -f "$RUN/completion-status-query.json" "$RUN/completion-status.json" "$RUN/completion-status.json.invoke-meta.json"
+
 
 # ---------------------------------------------------------------------------
 # RHEL PHASE
@@ -9208,7 +10757,6 @@ finish_phase
 log '=== Phone Vault daily workflow completed successfully ==='
 termux-notification --title 'Vault Phone backup complete' --content 'S3 and RHEL phases completed.' 2>/dev/null || termux-toast 'Vault Phone backup complete' 2>/dev/null || true
 termux-wake-unlock 2>/dev/null || true
-
 ```
 
 ```bash
@@ -9324,12 +10872,14 @@ A normal day is intentionally simple:
 6. Within 10 minutes tap the Phone `vault-daily-phone` widget.
 7. Complete any Tailscale identity-provider reauthentication/MFA challenges required after exact device expiry.
 8. Complete PC IAM Identity Center MFA and Phone IAM Identity Center MFA.
-9. Let S3 data-plane backups finish; transient restic retries reuse existing STS credentials.
-10. Both workflows transition to RHEL and receive fresh dual-signed RHEL proofs inside the same signed one-hour Vault session.
-11. RHEL backups/checks complete.
-12. Cooperative DONE stops each backend early.
-13. Each VPS expires only its own exact primary Tailscale device.
-14. RHEL may cool down and power off through the local operational helper.
+9. Let S3 data-plane backups finish; transient restic retries reuse the already-issued STS credential only while that backup is incomplete and its completion state is not REVOKED.
+10. AWS observes each successful snapshot commit followed by a later repository-lock removal, records an immutable cutoff, and revokes the matching older role session.
+11. Each clean primary polls the read-only status Lambda for the opposite device and the exact shared session deadline; after REVOKED it requests a signed close-only peer S3 admission shutdown.
+12. Only after both workflows pass this S3 completion barrier do they transition to RHEL and receive fresh dual-signed RHEL proofs inside the same signed one-hour Vault session.
+13. RHEL backups/checks complete.
+14. Cooperative RHEL DONE stops each backend early; the RHEL systemd hard-stop remains the security boundary.
+15. Each VPS expires only its own exact primary Tailscale device.
+16. RHEL may cool down and power off through the local operational helper.
 ```
 
 A few seconds or minutes of human timing skew is expected. The first local phase may
@@ -9418,10 +10968,15 @@ script again to "see if it works."
 ### STS result returned successfully, S3 network drops
 
 The PC/Phone daily script retries the same restic command up to three times using the
-same STS variables and the same S3 phase. No new Lambda call occurs.
+same STS variables and the same S3 phase **only while the backup has not successfully
+completed and AWS has not marked the exact session REVOKED**. No new issuance Lambda
+call occurs.
 
 If those attempts fail, the day's S3 copy is missed. The script exits and cleanup closes
-the local phase. Investigate connectivity; wait until the next daily slot.
+the local phase. Investigate connectivity; wait until the next daily slot. If the backup
+already reached successful snapshot-plus-lock-release completion, the completion revoker
+may invalidate the old STS before a later retry; that is intentional and the script must
+not request replacement credentials.
 
 ### Whole script/process crashes after STS issuance
 
@@ -9442,9 +10997,17 @@ The hard signed session deadline still wins. No second RHEL opening is created.
 
 ### Client suppresses DONE
 
-The backend remains only until the RHEL systemd hard-stop timer/deadline. Each VPS also
-uses its persisted hard session deadline to queue exact own-node expiry. Suppressing
-DONE cannot create a second daily slot or extend beyond the hard one-hour session ceiling.
+For **S3**, local `DONE` suppression is not a containment veto after a successful backup.
+AWS completion evidence is snapshot creation followed by a later repository-lock
+removal. The matching role session is revoked, and the clean opposite primary can use
+its close-only signed peer path to close the target VPS's S3 proxy admission for the
+exact shared deadline. If the backup never successfully creates a snapshot/lock-release
+completion sequence, the signed one-hour hard deadline remains the final ceiling.
+
+For **RHEL**, `DONE rhel` remains an authenticated early-close signal. The backend
+remains only until the RHEL systemd hard-stop timer/deadline, and each VPS uses its
+persisted hard session deadline to queue exact own-node expiry. Suppressing RHEL DONE
+cannot extend beyond the hard session ceiling.
 
 ### Budget emergency deny is attached
 
@@ -9500,20 +11063,27 @@ Before real data:
 [ ] Android incoming connections disabled.
 [ ] PC cannot reach Phone tailnet/RHEL listener.
 [ ] Phone cannot reach PC tailnet/RHEL listener.
-[ ] PC SSO role invokes only PC Lambda.
-[ ] Phone SSO role invokes only Phone Lambda.
+[ ] PC SSO role invokes only PC issuance Lambda plus shared read-only S3 completion-status Lambda.
+[ ] Phone SSO role invokes only Phone issuance Lambda plus shared read-only S3 completion-status Lambda.
+[ ] Own MFA succeeds but opposite primary absent → no dual proof, no slot, no STS issuance.
 [ ] One-signature proof is rejected by both Lambdas and RHEL.
 [ ] PC role cannot access Phone bucket.
 [ ] Phone role cannot access PC bucket.
 [ ] Copied STS credential outside own VPS source IP is denied by S3.
 [ ] Second valid Lambda invocation same device/day is DailySlotConsumed.
-[ ] Same-credential S3 transient retry does not call Lambda again.
+[ ] Same-credential S3 transient retry before completion revocation does not call issuance Lambda again.
+[ ] Each completion revoker receives only its own bucket snapshot/lock events and can mutate only its own backup role revocation policy.
+[ ] Snapshot + later lock removal moves exact slot to REVOKED; snapshot alone does not.
+[ ] Old STS is denied after completion revocation propagates even before its original Expiration.
+[ ] Exact opposite-session REVOKED status triggers signed CLOSE_PEER and closes target proxy admission without target DONE.
+[ ] Wrong-deadline/expired CLOSE payload is rejected; valid repeated close is idempotent.
 [ ] PC RHEL gate opens only PC backend.
 [ ] Phone RHEL gate opens only Phone backend.
 [ ] Same RHEL ceremony HTTP retry returns same done_token while active.
 [ ] New RHEL ceremony same device/day is rejected after slot consumption.
 [ ] RHEL keyed check is initiated by the source device, not RHEL.
-[ ] Suppressed DONE cannot survive signed hard deadline.
+[ ] Suppressed local S3 DONE cannot preserve admission after successful completion evidence and signed peer close; incomplete sessions still cannot survive the signed hard deadline.
+[ ] Suppressed RHEL DONE cannot survive the signed hard deadline.
 [ ] Cooperative DONE expires each primary node through its own VPS helper.
 [ ] Suppressed DONE still queues own-node expiry at hard deadline.
 [ ] USD 2 example budget threshold is documented as operator-configurable.

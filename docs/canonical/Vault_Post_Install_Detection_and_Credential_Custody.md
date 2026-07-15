@@ -31,6 +31,14 @@ VaultDailyIssuanceSlots --DynamoDB Stream--> VaultSlotWatch --SNS--> operator
 
 CloudTrail AssumeRole ----EventBridge------> VaultStsWatch  --SNS--> operator
 
+CloudTrail PutRolePolicy --EventBridge--> VaultCompletionPolicyWatch --SNS--> operator
+
+S3 snapshots/ + locks/ ----> device completion revokers
+                                   |
+                                   +--> exact slot OPEN/REVOKING/REVOKED
+                                   +--> AWSRevokeOlderSessions
+EventBridge rate(5 min) ----------> reconciliation
+
 EventBridge Scheduler (5 min)
              |
              v
@@ -65,9 +73,16 @@ long-lived OAuth client secret is stolen, the credential's real Tailscale API sc
 still broad. The exact-device helper prevents ordinary coordinator/helper misuse; the
 AWS watcher makes configuration mutation outside the expected behavior visible.
 
-Likewise, an alert is not a kill switch. The existing dual-signature gates, daily slots,
-fixed S3 egress, one-hour deadline, separate buckets/roles, RHEL local verification,
-and budget deny remain the preventive/containment layers.
+Likewise, an alert is not a kill switch. The existing dual-signature gates, live
+participation from both primaries for fresh S3 OPEN, daily slots, fixed S3 egress,
+AWS-side snapshot-plus-later-lock-removal completion revocation, clean-opposite signed
+peer close, one-hour deadline, separate buckets/roles, RHEL local verification, and
+budget deny remain the preventive/containment layers.
+
+The completion revokers are **not part of this detection plane** merely because they run
+in AWS. They are preventive/containment components from the canonical master. This guide
+adds visibility around their Lambda health and around the privileged
+`iam:PutRolePolicy` transition they are expected to perform.
 
 ---
 
@@ -1275,26 +1290,181 @@ any other caller                                       -> SNS CRITICAL
 Set `SEND_EXPECTED_STS=true` temporarily for one acceptance test if you want one INFO
 email for a normal session, then set it back to `false`.
 
+### 6.5 Completion-revocation IAM caller validation — VaultCompletionPolicyWatch
+
+A healthy completed S3 backup causes one device-specific completion revoker to update
+only the matching backup role's inline policy named:
+
+```text
+AWSRevokeOlderSessions
+```
+
+Because the revoker holds a narrow `iam:PutRolePolicy` primitive, watch every
+`PutRolePolicy` call that targets either Vault backup role. Expected pairs are:
+
+```text
+Vault-PC-S3-BackupRole
+  <- Vault-PC-S3-Completion-ExecutionRole
+  <- policy name exactly AWSRevokeOlderSessions
+
+Vault-Phone-S3-BackupRole
+  <- Vault-Phone-S3-Completion-ExecutionRole
+  <- policy name exactly AWSRevokeOlderSessions
+```
+
+Create the function with the existing `Vault-StsWatch-ExecutionRole`; that role already
+has Lambda logging plus SNS publish only. The watcher itself needs no IAM write access.
+
+Create `index.mjs`:
+
+```javascript
+import { SNSClient, PublishCommand } from '@aws-sdk/client-sns';
+
+const sns = new SNSClient({});
+const topicArn = process.env.TOPIC_ARN;
+const sendExpected = (process.env.SEND_EXPECTED_COMPLETION_POLICY ?? 'false').toLowerCase() === 'true';
+const expected = new Map([
+  ['Vault-PC-S3-BackupRole', process.env.PC_COMPLETION_ROLE_ARN],
+  ['Vault-Phone-S3-BackupRole', process.env.PHONE_COMPLETION_ROLE_ARN],
+].filter(([, actor]) => actor));
+
+if (!topicArn || expected.size !== 2) throw new Error('missing TOPIC_ARN or completion role ARNs');
+
+function callerRoleArn(detail) {
+  return detail?.userIdentity?.sessionContext?.sessionIssuer?.arn ?? '';
+}
+
+export const handler = async (event) => {
+  const detail = event.detail ?? {};
+  const roleName = detail.requestParameters?.roleName ?? '';
+  if (!expected.has(roleName)) return { ignored: true };
+
+  const policyName = detail.requestParameters?.policyName ?? '';
+  const actualCaller = callerRoleArn(detail);
+  const expectedCaller = expected.get(roleName);
+  const ok = policyName === 'AWSRevokeOlderSessions' && actualCaller === expectedCaller;
+
+  if (!ok || sendExpected) {
+    const severity = ok ? 'INFO' : 'CRITICAL';
+    await sns.send(new PublishCommand({
+      TopicArn: topicArn,
+      Subject: `[VAULT ${severity}] completion revocation policy ${ok ? 'expected' : 'unexpected mutation'}`,
+      Message: [
+        `Severity: ${severity}`,
+        `Event time: ${event.time ?? detail.eventTime ?? 'unknown'}`,
+        `Target role: ${roleName}`,
+        `Policy name: ${policyName || 'unknown'}`,
+        `Expected caller role: ${expectedCaller}`,
+        `Actual caller role: ${actualCaller || 'unknown'}`,
+        `Source IP: ${detail.sourceIPAddress ?? 'unknown'}`,
+        `CloudTrail event ID: ${detail.eventID ?? 'unknown'}`,
+        '',
+        ok
+          ? 'Expected Vault successful-completion role-session revocation update.'
+          : 'Unexpected inline-policy mutation targeted a Vault backup role. Preserve evidence and contain before reopening Vault sessions.'
+      ].join('\n')
+    }));
+  }
+  return { ok, roleName, policyName, actualCaller };
+};
+```
+
+Package and deploy:
+
+```bash
+mkdir -p ~/vault-completion-policy-watch && cd ~/vault-completion-policy-watch
+# Save the code above as index.mjs.
+cat > package.json <<'JSON'
+{
+  "type": "module",
+  "dependencies": {
+    "@aws-sdk/client-sns": "^3.0.0"
+  }
+}
+JSON
+npm install --omit=dev
+node --check index.mjs
+zip -qr /tmp/vault-completion-policy-watch.zip \
+  index.mjs package.json package-lock.json node_modules
+
+export PC_COMPLETION_ROLE_ARN="$(aws iam get-role \
+  --role-name Vault-PC-S3-Completion-ExecutionRole \
+  --query Role.Arn --output text)"
+export PHONE_COMPLETION_ROLE_ARN="$(aws iam get-role \
+  --role-name Vault-Phone-S3-Completion-ExecutionRole \
+  --query Role.Arn --output text)"
+
+aws lambda create-function \
+  --region "$AWS_REGION" \
+  --function-name VaultCompletionPolicyWatch \
+  --runtime nodejs22.x \
+  --handler index.handler \
+  --role "$STS_WATCH_ROLE_ARN" \
+  --zip-file fileb:///tmp/vault-completion-policy-watch.zip \
+  --timeout 20 \
+  --memory-size 128 \
+  --environment "Variables={TOPIC_ARN=$VAULT_ALERT_TOPIC_ARN,PC_COMPLETION_ROLE_ARN=$PC_COMPLETION_ROLE_ARN,PHONE_COMPLETION_ROLE_ARN=$PHONE_COMPLETION_ROLE_ARN,SEND_EXPECTED_COMPLETION_POLICY=false}"
+```
+
+Create an EventBridge rule for CloudTrail IAM events whose exact target role name is one
+of the two Vault backup roles:
+
+```json
+{
+  "detail-type": ["AWS API Call via CloudTrail"],
+  "source": ["aws.iam"],
+  "detail": {
+    "eventSource": ["iam.amazonaws.com"],
+    "eventName": ["PutRolePolicy"],
+    "requestParameters": {
+      "roleName": [
+        "Vault-PC-S3-BackupRole",
+        "Vault-Phone-S3-BackupRole"
+      ]
+    }
+  }
+}
+```
+
+Target `VaultCompletionPolicyWatch`. Add the ordinary Lambda resource-based permission
+for `events.amazonaws.com` restricted to this exact rule ARN.
+
+Temporarily set `SEND_EXPECTED_COMPLETION_POLICY=true` for one synthetic successful
+completion test. Confirm one INFO message shows the matching completion execution role
+and exact `AWSRevokeOlderSessions` policy name, then set it back to `false`. A human
+administrator, gate role, opposite completion role, different policy name, or unknown
+caller targeting either backup role is CRITICAL.
+
 ---
 
-## 7. Gate Lambda and detector health alarms
+## 7. Gate, completion, and detector health alarms
 
 Create CloudWatch alarms on:
 
 ```text
-Vault-PC-S3-Gate      Errors >= 1 / 5 min -> SNS
-Vault-Phone-S3-Gate   Errors >= 1 / 5 min -> SNS
-VaultAuditWatch       Errors >= 1 / 5 min -> SNS
-VaultSlotWatch        Errors >= 1 / 5 min -> SNS
-VaultStsWatch         Errors >= 1 / 5 min -> SNS
+Vault-PC-S3-Gate                    Errors >= 1 / 5 min -> SNS
+Vault-Phone-S3-Gate                 Errors >= 1 / 5 min -> SNS
+Vault-PC-S3-Completion-Revoker      Errors >= 1 / 5 min -> SNS
+Vault-Phone-S3-Completion-Revoker   Errors >= 1 / 5 min -> SNS
+Vault-S3-Completion-Status          Errors >= 1 / 5 min -> SNS
+VaultCompletionPolicyWatch          Errors >= 1 / 5 min -> SNS
+VaultAuditWatch                     Errors >= 1 / 5 min -> SNS
+VaultSlotWatch                      Errors >= 1 / 5 min -> SNS
+VaultStsWatch                       Errors >= 1 / 5 min -> SNS
 ```
 
 An issuance-gate error may represent invalid proof, daily-slot collision, STS failure,
-or a deployment bug. The alarm does not decide the incident cause; it prevents an
-ambiguous issuance path from failing silently.
+or a deployment bug. A completion-revoker error may represent malformed/out-of-window
+S3 evidence, DynamoDB transition failure, S3 reconciliation failure, or failure to write
+or finalize the exact role-session revocation policy. The alarms do not decide incident
+cause; they prevent an ambiguous authorization or containment path from failing silently.
 
-Also monitor EventBridge Scheduler invocation failures for `VaultAuditWatchEvery5Minutes`.
-If you use a Scheduler dead-letter queue, alert on messages arriving in that queue.
+Also monitor EventBridge Scheduler invocation failures for `VaultAuditWatchEvery5Minutes`
+and EventBridge invocation failures for both canonical five-minute completion reconcile
+rules. If you use a dead-letter queue for either path, alert on messages arriving there.
+A daily workflow that reaches the signed deadline while waiting for the opposite exact
+session to become `REVOKED` is itself an operational containment incident; preserve the
+slot row and completion Lambda logs rather than deleting state.
 
 ---
 
@@ -1501,8 +1671,8 @@ changes. Do not use root and do not use `AdministratorAccess` for daily backup.
 Recommended split:
 
 ```text
-Vault-PC-Gate-Invoke        routine PC backup; invoke PC gate only
-Vault-Phone-Gate-Invoke     routine Phone backup; invoke Phone gate only
+Vault-PC-Gate-Invoke        routine PC backup; invoke PC gate + shared read-only completion status
+Vault-Phone-Gate-Invoke     routine Phone backup; invoke Phone gate + shared read-only completion status
 Vault-Recovery-Admin        Deep Archive restore / documented incident operations
 Vault-Infrastructure-Admin  rare controlled deployment changes
 AWS root                    root-only tasks / account recovery only
@@ -1975,6 +2145,23 @@ phishing-resistant.
 5. Validate bucket policy and opposite-role explicit deny before reopening.
 ```
 
+### Alert: unexpected completion-policy mutation or completion revoker failure
+
+```text
+1. Preserve the CloudTrail PutRolePolicy event, completion Lambda logs, exact DynamoDB
+   slot row, backup-role inline policies, and permissions-boundary ARN.
+2. Confirm whether the caller is the matching device-specific completion execution role
+   and the policy name is exactly AWSRevokeOlderSessions.
+3. If caller/policy is unexpected, attach or confirm emergency deny on the affected
+   backup role and pause Vault sessions.
+4. Verify the backup-role permissions boundary is still attached and unchanged.
+5. If the exact slot is stuck REVOKING or the daily workflow hit the completion barrier
+   deadline, do not delete/rewrite the slot. Repair the revoker/reconcile path and treat
+   the old session as potentially usable only up to the canonical hard ceiling.
+6. Re-run snapshot-only, snapshot+later-lock-removal, old-STS-denied, and signed peer-close
+   acceptance tests before production resumes.
+```
+
 ### Alert: DETECTION BLIND
 
 ```text
@@ -2016,7 +2203,16 @@ Do not sign off production until every item is true:
 [ ] Restored WIF produces recovery INFO.
 [ ] CloudTrail management events are recorded; S3 data events are not enabled by default.
 [ ] StsWatch validates exact gate-role -> backup-role pairs.
-[ ] Lambda Errors alarms target the security SNS topic.
+[ ] CompletionPolicyWatch validates exact completion-role -> own backup-role -> AWSRevokeOlderSessions triples.
+[ ] Snapshot-created alone does not mark a slot REVOKED.
+[ ] Snapshot-created plus later lock-removal marks the exact slot REVOKED and preserves one immutable cutoff.
+[ ] Old STS fails after completion revocation propagation before its original Expiration.
+[ ] Both backup-role permissions boundaries are attached and match the reviewed bucket/fixed-egress maximum envelope.
+[ ] Completion revokers have no sts:AssumeRole, no S3 object read/write, and no opposite-role/bucket authority.
+[ ] Completion-status Lambda is DynamoDB GetItem-only and both routine SSO profiles can invoke it.
+[ ] Both five-minute completion reconciliation rules are enabled and target only their matching revoker.
+[ ] Signed CLOSE_PEER closes target S3 proxy admission after exact opposite status REVOKED even when target local DONE is suppressed.
+[ ] Lambda Errors alarms target the security SNS topic, including completion revokers/status/policy watcher.
 [ ] Root-activity alert exists.
 [ ] AWS root has no access keys.
 [ ] AWS root password/recovery record is outside the routine Vault data path.
@@ -2043,9 +2239,11 @@ The five-minute watcher schedule is approximately:
 12 runs/hour * 24 * ~30 = ~8,640 AuditWatch invocations/month
 ```
 
-SlotWatch and StsWatch run only on rare Vault security events. Normal DynamoDB state is a
-few small items and short-TTL fingerprints. SNS email volume should be tiny in a healthy
-system.
+SlotWatch, StsWatch, and CompletionPolicyWatch run only on low-volume Vault security or
+control events. The two completion reconcilers add approximately two more five-minute
+Lambda schedules, while normal completion notifications occur only around daily backups.
+DynamoDB state remains a few small items and short-TTL fingerprints. SNS email volume
+should be tiny in a healthy system.
 
 AWS pricing and free-tier terms can change. Confirm current prices before deployment, but
 this architecture is deliberately sized for low-volume Lambda/Scheduler/DynamoDB/SNS
@@ -2073,6 +2271,11 @@ Local canary:
 AWS slot/STS alerts:
   high-signal for Vault issuance
   but not general endpoint malware detection
+
+Completion containment visibility:
+  watches Lambda health and exact PutRolePolicy caller/target/name
+  but S3 event delivery, client status polling, peer close, and IAM propagation are not
+  zero-latency and AWS administrator compromise can disable the plane
 
 Egress controls:
   useful prevention/detection

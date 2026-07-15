@@ -1,7 +1,7 @@
 # VAULT — DEVICE RETIREMENT AND MIGRATION RUNBOOK
 
 **Document type:** canonical operational lifecycle runbook  
-**Architecture reference:** 2026-07-15 RHEL 9 BYOL/BYOI + Tailscale Tailnet Lock + outbound-only + no-prune + no-custom-SELinux-policy baseline  
+**Architecture reference:** 2026-07-16 RHEL 9 BYOL/BYOI + Tailscale Tailnet Lock + outbound-only + no-prune + S3 successful-completion revocation + signed peer close + no-custom-SELinux-policy baseline
 **Applies to:** PC and Phone primary-device compartments  
 **Purpose:** replace, retire, rebuild, or permanently remove a primary device without weakening cross-authorization, Tailnet Lock, exact-device expiry, daily-slot, or repository-isolation invariants
 
@@ -28,7 +28,8 @@ device-expiry helper
 Tailscale audit allowlists
 cross-authorization ceremony
 phase-token verifier
-AWS Identity Center access path
+AWS Identity Center gate + shared read-only completion-status access path
+close-only peer S3 authority bound to the device's own phase token/coordinator role
 restic repository-secret custody
 operator evidence records
 ```
@@ -407,7 +408,7 @@ On the replacement:
 install current AWS CLI v2
 configure only the matching Vault profile
 perform a fresh MFA/SSO login
-verify the profile can invoke only the matching gate
+verify the profile can invoke the matching issuance gate and shared read-only S3 completion-status Lambda only
 ```
 
 Do not copy AWS SSO cache or temporary STS credentials from the old device.
@@ -417,8 +418,10 @@ Do not create static IAM user access keys as a migration shortcut.
 Negative tests:
 
 ```text
-PC replacement cannot invoke Phone gate
-Phone replacement cannot invoke PC gate
+PC replacement cannot invoke Phone issuance gate
+Phone replacement cannot invoke PC issuance gate
+both replacement profiles can invoke only the shared read-only S3 completion-status Lambda in addition to their own gate
+completion-status query with a changed session_expires_at returns ABSENT_OR_SESSION_MISMATCH
 primary has no direct S3 data permission before gate issuance
 primary cannot AssumeRole directly into backup role
 ```
@@ -432,8 +435,9 @@ Recreate:
 ```text
 canonical source directory
 phase helper
+close-only peer S3 helper
 AWS issuance helper
-daily Vault workflow
+daily Vault workflow with exact-session S3 completion barrier
 systemd user unit on Fedora
 Termux workflow/widget on Android
 routine secret files with canonical permissions
@@ -497,15 +501,23 @@ a reset endpoint
 an old-device bypass
 ```
 
-### One-hour deadline
+### S3 completion containment and one-hour deadline
 
 Verify:
 
 ```text
 session_expires_at remains fixed
 activity does not slide the deadline
-DONE closes early only
-suppressed DONE cannot exceed the signed ceiling
+own MFA with opposite primary absent -> no dual proof and no fresh STS issuance
+snapshot creation alone -> completion state is not REVOKED
+snapshot + later lock removal -> exact slot reaches REVOKED with immutable cutoff
+old STS is denied after role-session revocation propagation before original Expiration
+replacement can poll opposite exact-session status through the shared read-only Lambda
+clean replacement can request signed CLOSE_PEER for the opposite role after exact status REVOKED
+target local DONE suppression cannot veto that S3 proxy-admission close
+wrong-deadline/expired close payload is rejected
+incomplete/no-snapshot session still cannot exceed the signed one-hour ceiling
+RHEL DONE remains early close only; suppressed RHEL DONE cannot exceed the signed ceiling
 ```
 
 ---
@@ -775,9 +787,11 @@ AWS
 [ ] Matching Identity Center profile only.
 [ ] Fresh MFA/SSO flow tested.
 [ ] No static IAM user key created.
-[ ] Replacement cannot invoke opposite gate.
+[ ] Replacement cannot invoke opposite issuance gate.
+[ ] Replacement can invoke shared read-only completion-status Lambda and wrong-deadline query fails closed.
 [ ] Replacement cannot AssumeRole directly.
-[ ] Daily-slot invariant unchanged.
+[ ] Daily-slot/completion-state invariant unchanged.
+[ ] Matching backup-role permissions boundary remains attached.
 [ ] No credential-refresh loop introduced.
 
 RHEL
@@ -790,12 +804,16 @@ RHEL
 [ ] Hard-stop still follows signed deadline.
 
 SESSION
-[ ] Single endpoint alone cannot open AWS.
+[ ] Single endpoint alone cannot open AWS even when its own MFA succeeds.
 [ ] Single endpoint alone cannot open RHEL.
 [ ] Dual ceremony succeeds.
-[ ] Signed one-hour ceiling remains fixed.
-[ ] DONE closes early only.
-[ ] Suppressed DONE cannot extend deadline.
+[ ] Successful S3 completion reaches REVOKED only after snapshot + later lock removal.
+[ ] Old STS is denied after completion revocation propagation before original Expiration.
+[ ] Clean opposite primary can close target S3 admission through signed CLOSE_PEER without target DONE.
+[ ] Wrong-session/expired close payload is rejected.
+[ ] Signed one-hour ceiling remains fixed for incomplete/no-snapshot fallback.
+[ ] RHEL DONE closes early only.
+[ ] Suppressed RHEL DONE cannot extend deadline.
 
 CUTOVER
 [ ] Old primary is no longer accepted as a Vault participant.

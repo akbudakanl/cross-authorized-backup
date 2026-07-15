@@ -79,8 +79,11 @@ only its SHA-256 verifier.
 
 ### A5 — AWS issuance and containment state
 
-DynamoDB daily-slot records, Lambda gate code/configuration, IAM roles, S3 bucket
-policies, versioning, fixed `aws:SourceIp` conditions, budget alert/action, and
+DynamoDB daily-slot/completion records; issuance-gate, device-specific completion-
+revoker, and read-only completion-status Lambda code/configuration; exact backup-role
+permissions boundaries; the `AWSRevokeOlderSessions` cutoff policy; S3 snapshot/lock
+event notifications; five-minute completion reconciliation rules; IAM roles; S3 bucket
+policies; versioning; fixed `aws:SourceIp` conditions; budget alert/action; and
 CloudTrail/EventBridge alerting.
 
 ### A6 — Tailscale membership trust state
@@ -159,6 +162,13 @@ Neither primary runs a Vault receiver service in the baseline.
 AWS S3 issuance and RHEL backend opening require valid `vault-pc` and `vault-phone`
 Ed25519 signatures over the exact same canonical fresh payload.
 
+### I-03A — Fresh S3 opening requires live participation from both primaries
+
+A primary's own SSO/MFA success is necessary but insufficient. The opposite primary must
+also hold a live authenticated `s3` phase on its own VPS so that the opposite VPS signs
+the same fresh payload. No phase helper may be converted into an always-on daemon or
+preauthorization service for an absent primary.
+
 ### I-04 — One daily issuance/opening slot per device/repository
 
 PC S3, Phone S3, RHEL-PC, and RHEL-Phone have separate calendar-day slots. The date is
@@ -169,18 +179,30 @@ computed in `Europe/Istanbul`. There is no reset API; the date is part of the sl
 AWS Lambda consumes the device/day slot before its single `AssumeRole` attempt. RHEL
 consumes the repository/day slot before starting the matching backend.
 
-### I-06 — Credential issuance is non-retryable; data plane is retryable
+### I-06 — Credential issuance is non-retryable; incomplete data-plane work may retry
 
 After daily-slot consumption, an ambiguous AWS issuance result is fail-closed and is
-not retried. A successfully returned STS credential may be reused for bounded restic/S3
-operation retries until expiry. RHEL data-plane retries reuse the already-open backend
+not retried. A successfully returned STS credential may be reused for bounded
+restic/S3 retries only while that backup is incomplete, the exact completion state is
+not `REVOKED`, and the signed hard deadline remains open. Successful AWS-side completion
+intentionally invalidates old-session reuse before the original STS `Expiration` when
+containment propagation succeeds. RHEL data-plane retries reuse the already-open backend
 window; they do not create a new RHEL ceremony.
 
-### I-07 — Endpoint `DONE` is not a security factor
+### I-07 — S3 successful completion is independently contained; local `DONE` is not required
 
-`DONE` may close a window early. Suppressing it cannot move the persisted signed hard
-one-hour session deadline. RHEL uses a systemd-managed stop timer based on the signed
-deadline. VPS coordinators independently queue own-primary expiry at deadline.
+For S3, local `DONE` is only the fastest cooperative close. AWS independently records a
+new `snapshots/` object followed by a later `locks/` removal in the exact issued window.
+The device-specific completion revoker stores one immutable cutoff, installs the matching
+role-session deny based on `aws:TokenIssueTime`, and marks the exact slot `REVOKED`.
+The clean opposite primary reads only exact-session completion state and may then ask its
+own VPS to send a signed, deadline-bound, close-only `CLOSE` message to the target VPS.
+The target cannot veto that S3 proxy-admission close by suppressing `DONE`.
+
+For RHEL, `DONE rhel` remains only an authenticated early-close signal. Suppressing it
+cannot move the persisted signed one-hour session deadline; the RHEL systemd-managed
+hard-stop timer remains the security boundary. VPS coordinators independently queue
+own-primary expiry at deadline.
 
 ### I-08 — S3 device isolation
 
@@ -245,14 +267,19 @@ identity. Cross-VPS Ed25519 private signing keys are never co-located.
 
 **Scenario:** malware reads PC plaintext, PC phase token, or active process credentials.
 
-**Controls:** Phone-VPS signature required; PC S3 daily slot; PC-only bucket/role; fixed
-PC VPS egress `/32`; one-hour STS; hard session deadline; RHEL-PC daily slot; PC repo
-quota; Phone repository not reachable with PC role.
+**Controls:** a live Phone `s3` phase and Phone-VPS signature are required even when PC
+SSO/MFA succeeds; PC S3 daily slot; PC-only bucket/role; fixed PC VPS egress `/32`;
+AWS-side snapshot-plus-later-lock-removal completion detection; exact-role session
+revocation; clean-Phone close-only peer admission shutdown; signed hard session deadline;
+RHEL-PC daily slot; PC repo quota; Phone repository not reachable with PC role.
 
-**Residual:** during a legitimately authorized joint session, malware can use the PC's
-own already-authorized capability until the hard deadline. It can also read/exfiltrate
-PC plaintext through non-Vault channels if the endpoint OS itself permits them. Vault
-is not a general endpoint DLP product.
+**Residual:** during a legitimately authorized **incomplete** joint session, malware can
+share the PC's own capability. After successful backup completion there is a short
+S3-event/status/peer-close and IAM-policy propagation interval rather than a guaranteed
+zero-millisecond cutoff. If no successful snapshot/lock-release sequence occurs, the
+signed hard deadline remains the final ceiling. Malware can also read/exfiltrate PC
+plaintext through non-Vault channels if the endpoint OS itself permits them. Vault is
+not a general endpoint DLP product.
 
 **Status:** mitigated, residual high-value endpoint risk accepted.
 
@@ -327,14 +354,21 @@ of the Tailnet Lock membership guarantee.
 
 **Scenario:** malware copies a successful PC or Phone STS credential from process memory.
 
-**Controls:** one-hour credential lifetime; matching bucket only; matching role only;
-fixed Vault VPS `aws:SourceIp`; daily reissuance slot; budget containment.
+**Controls:** matching bucket only; matching role only; fixed Vault VPS `aws:SourceIp`;
+daily reissuance slot; AWS-side successful-completion evidence; immutable
+`completion_revoke_cutoff`; matching backup-role `AWSRevokeOlderSessions`; clean opposite
+primary's signed close-only peer S3 shutdown; one-hour signed deadline as final ceiling;
+budget containment.
 
-**Residual:** credential can be used inside the already-authorized egress path/window if
-attacker also controls or reaches the matching VPS path. Ordinary logout does not revoke
-an already-issued STS credential.
+**Residual:** while the legitimate backup is incomplete, a stolen credential can share
+the already-authorized egress path if the attacker also controls or reaches the matching
+VPS path. After successful completion, S3 event delivery, exact-status polling,
+cross-VPS close, and IAM policy propagation are not instantaneous. Ordinary SSO logout
+alone still does not revoke an STS credential; the Vault relies on the explicit
+completion-revocation path instead.
 
-**Status:** bounded, not eliminated.
+**Status:** successful-completion reuse is actively contained; incomplete-session and
+short propagation residuals remain.
 
 ### T-08 — Repeated STS minting after VPS/auth bypass
 
@@ -380,12 +414,21 @@ slot to ambiguous duplicate issuance.
 
 **Scenario:** malware keeps its control socket or transfer active and never sends DONE.
 
-**Controls:** persisted signed one-hour session deadline; VPS admissions expire;
-S3 proxy bounded drain; RHEL systemd hard-stop timer; exact own-primary expiry intent.
+**Controls:** for S3, successful completion is independently observed from snapshot
+creation plus later repository-lock removal; the matching role session is revoked; the
+clean opposite primary can request a peer-VPS-signed close of the target S3 admission
+without target cooperation. For incomplete/no-snapshot sessions, persisted signed
+one-hour deadline and proxy hard close remain. RHEL uses its systemd hard-stop timer.
+Exact own-primary expiry intent remains deadline-bound.
 
-**Residual:** attacker can retain the legitimate window until the hard deadline.
+**Residual:** S3 completion containment has non-zero event/status/close/IAM propagation
+latency. A session that never reaches successful completion can retain its legitimate
+incomplete window until the hard deadline. The close-only peer path can be abused by one
+compromised primary for denial of service against the opposite S3 phase, but cannot open
+or extend authority.
 
-**Status:** bounded by design.
+**Status:** successful-completion DONE suppression no longer grants a veto over S3
+containment; incomplete-session hard ceiling remains.
 
 ### T-12 — Restricted Wi-Fi blocks UDP/WireGuard direct path
 
@@ -493,13 +536,33 @@ chooses the pragmatic lower-cost layout.
 
 **Status:** custody architecture is part of the production security model.
 
+### T-20 — Completion revoker IAM write primitive is compromised
+
+**Scenario:** an attacker gains code-execution authority in one device-specific S3
+completion-revoker Lambda and abuses its `iam:PutRolePolicy` permission.
+
+**Controls:** separate PC/Phone completion execution roles; exact one-role IAM resource;
+no opposite bucket/role access; no `sts:AssumeRole`; no S3 object read/write; exact
+backup-role permissions boundary built from the reviewed repository/fixed-egress policy.
+The status Lambda is separate and read-only.
+
+**Residual:** the compromised revoker can deny or otherwise perturb its own backup role
+and cause availability loss. Its effective Allow envelope cannot exceed the attached
+permissions boundary, but AWS administrator/account compromise remains outside this
+single-component guarantee.
+
+**Status:** privileged primitive narrowed and boundary-capped; own-compartment DoS
+accepted.
+
 ## 7. Detection and containment layers
 
 ```text
-PREVENTION
+PREVENTION / FRESH OPEN AUTHORIZATION
   Tailnet Lock
   two tailnets
+  live phase from both primaries
   two Vault signatures
+  own SSO/MFA
   daily AWS/RHEL slots
   one-attempt STS issuance
   fixed S3 source IP
@@ -507,10 +570,18 @@ PREVENTION
   RHEL local proof verification
   per-repo capacity isolation
 
-BOUNDED WINDOW
-  one-hour STS
+SUCCESSFUL-S3-COMPLETION CONTAINMENT
+  snapshot-created + later lock-removed evidence in exact issued window
+  immutable completion_revoke_cutoff
+  exact-role AWSRevokeOlderSessions deny
+  read-only exact-session status
+  clean opposite primary -> signed CLOSE_PEER -> target proxy admission close
+  completion-role permissions boundaries
+
+FINAL BOUNDED WINDOW / FALLBACK
+  one-hour STS maximum lifetime
   signed one-hour Vault session deadline
-  S3 proxy drain
+  S3 proxy hard deadline/drain
   RHEL systemd hard-stop
 
 DELAYED CONTAINMENT
@@ -532,7 +603,9 @@ DETECTION
 ```
 
 Do not describe delayed budget containment as a real-time cost cap. Do not describe
-Tailscale device expiry as revocation of an already-issued AWS STS credential.
+Tailscale device expiry as revocation of an already-issued AWS STS credential. S3 role-
+session revocation is performed by the AWS completion revoker; cross-device `CLOSE_PEER`
+closes the allowed proxy path and is a separate containment layer.
 
 ## 8. Extension delta protocol
 
@@ -553,6 +626,9 @@ When enabling an extension:
            |          | outbound-only, keyless RHEL, no-prune.
 2026-07-15 | DETECT   | Mandatory AWS-side SlotWatch/AuditWatch/StsWatch and credential
            |          | custody profile added before production sign-off.
+2026-07-16 | S3-CLOSE | Fresh S3 OPEN still requires both live primaries + two VPS signatures
+           |          | + own MFA. Successful snapshot + later lock release now triggers
+           |          | exact-role STS revocation and clean-opposite signed peer close.
 ```
 
 ## 9. Security decision summary
@@ -568,7 +644,9 @@ one compromised endpoint != two VPS signatures
 one compromised VPS      != two VPS signatures
 control-plane compromise != unsigned membership (Tailnet Lock)
 one stolen STS            != unlimited reissuance
-endpoint DONE suppression != unlimited window
+own MFA without peer phase   != fresh S3 issuance
+successful S3 completion     != STS reuse until original Expiration
+endpoint DONE suppression    != target veto over successful-completion S3 close
 one junk repository       != automatic loss of the other repository quota
 RHEL root compromise      != repository decryption in the keyless baseline
 ```
