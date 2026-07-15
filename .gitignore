@@ -1,0 +1,52 @@
+# Secrets and credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# SSH material
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# AWS local configuration
+.aws/
+aws-config/
+aws-credentials/
+
+# Runtime and generated state
+state/
+runtime/
+tmp/
+temp/
+logs/
+*.log
+*.pid
+*.sock
+
+# Backup and repository data
+repository/
+repositories/
+restic-repo/
+*.pack
+
+# Local working copies and obsolete drafts
+archive/
+working/
+drafts/
+old/
+obsolete/
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+*.swp
+*.tmp
