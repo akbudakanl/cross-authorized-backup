@@ -100,7 +100,7 @@ keys.
 ### A8 — Independent detection and break-glass state
 
 The `VaultDetectionState` table, DynamoDB slot stream, `VaultSlotWatch`,
-`VaultAuditWatch`, `VaultStsWatch`, EventBridge/Scheduler rules, SNS security topic,
+`VaultAuditWatch`, `VaultStsWatch`, `VaultAuthFailureWatch`, EventBridge/Scheduler rules, SNS security topic,
 CloudTrail management-event evidence, pinned Tailscale actor/Node IDs, WIF client
 IDs/audiences, and detector-health state. Break-glass records also include AWS root
 recovery material, Tailscale Tailnet Lock disablement secrets, VPS-provider recovery
@@ -249,9 +249,13 @@ Production operation requires the post-install detection profile. Tailscale conf
 audit reading uses AWS-to-Tailscale workload identity federation and only
 `logs:configuration:read`; no persistent Tailscale audit secret exists in Lambda. Daily
 slot inserts alert through DynamoDB Streams. STS `AssumeRole` for either backup role is
-validated against the exact corresponding gate execution role. Audit polling blind state
-is itself a CRITICAL alert condition. Detection state cannot grant AWS/RHEL backup
-authority.
+validated against the exact corresponding gate execution role. Coordinator authorization
+failures are emitted as secret-free structured journal events: repeated local phase-token
+rejection crosses a rate threshold, while one invalid cross-VPS signature or exact-session
+payload is CRITICAL. Each VPS obtains temporary SNS-publish-only credentials through a
+separate IAM Roles Anywhere X.509 workload identity. Audit polling blind state and the
+documented authorization-watcher blind state are alert conditions. Detection state cannot
+grant AWS/RHEL backup authority.
 
 ### I-16 — Break-glass and admin credentials do not collapse both VPS compartments
 
@@ -554,6 +558,34 @@ single-component guarantee.
 **Status:** privileged primitive narrowed and boundary-capped; own-compartment DoS
 accepted.
 
+
+### T-21 — Repeated coordinator/RHEL-gate authorization guessing or forged proof payload is silent
+
+**Scenario:** a compromised primary with tailnet reach repeatedly submits wrong phase
+tokens, or a reachable peer path presents an invalid Ed25519 signature / mismatched
+exact-session close payload. The 256-bit phase token and Ed25519 key remain
+cryptographically infeasible to brute-force, but silent repeated failures would reduce
+incident visibility.
+
+**Controls:** the mandatory post-install profile adds secret-free structured coordinator
+security events. `AUTH_TOKEN_REJECT` is rate-aggregated per source IP; five failures in
+60 seconds or twenty in ten minutes are CRITICAL. `AUTH_PROTOCOL_REJECT` is thresholded.
+One `PEER_SIGNATURE_INVALID` or `PEER_PAYLOAD_INVALID` event is CRITICAL. Each VPS uses a
+separate IAM Roles Anywhere leaf identity whose AWS role can only `sns:Publish` to the
+exact Vault security topic. The watcher cannot open/extend/revoke Vault sessions, mint
+backup STS, access S3, or modify IAM. The mandatory post-install profile also instruments the RHEL local gate: invalid infrastructure signatures or signed-payload semantics alert immediately, while malformed protocol and DONE-token failures use source-based thresholds. The RHEL watcher uses a separate X.509 workload identity restricted to publishing only to the exact security SNS topic.
+
+**Residual:** full root compromise of the observing VPS can suppress or falsify its local
+journal/watcher and can steal its publish-only X.509 leaf key to create alert spam. The
+AWS-side SlotWatch, StsWatch, AuditWatch, completion-policy watcher, and Lambda health
+alarms remain separate, but this specific authorization-failure detector is not claimed
+to survive root compromise of the VPS it observes. Threshold alerts indicate abnormal
+boundary exercise, not that an attacker is computationally close to guessing a 256-bit
+token.
+
+**Status:** brute-force prevention remains cryptographic; repeated online authorization
+failure gains mandatory visibility for the single-compromised-primary threat case.
+
 ## 7. Detection and containment layers
 
 ```text
@@ -593,6 +625,10 @@ DETECTION
   five-minute Tailscale configuration-audit polling through read-only WIF
   default-deny mutation classifier with exact expiry actor/NodeID pinning
   DETECTION BLIND alarm after repeated audit-poll failure
+  coordinator AUTH_TOKEN_REJECT rate aggregation per source IP
+  one-event CRITICAL for invalid cross-VPS signature or exact-session payload
+  per-VPS IAM Roles Anywhere temporary SNS-publish-only alert identity
+  AuthFailureWatch blind alert path
   CloudTrail/EventBridge exact STS gate-role -> backup-role caller validation
   Lambda Errors and scheduler failure alarms
   AWS root-activity alert
@@ -618,6 +654,9 @@ When enabling an extension:
 4. Add at least one negative acceptance test for the new boundary.
 5. Record whether rollback restores the old security property or whether data/history
    changes are irreversible.
+
+
+**Residual:** a full root compromise of the observing Vault VPS can suppress its coordinator watcher; a full RHEL root compromise can suppress the RHEL local-gate watcher. These detectors improve visibility for primary-endpoint and network-originated guessing but are not independent of the host whose journal they consume.
 
 ### Change log
 

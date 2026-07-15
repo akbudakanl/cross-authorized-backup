@@ -33,6 +33,8 @@ CloudTrail AssumeRole ----EventBridge------> VaultStsWatch  --SNS--> operator
 
 CloudTrail PutRolePolicy --EventBridge--> VaultCompletionPolicyWatch --SNS--> operator
 
+VPS coordinator journal ---> VaultAuthFailureWatch ---> Roles Anywhere ---> SNS
+
 S3 snapshots/ + locks/ ----> device completion revokers
                                    |
                                    +--> exact slot OPEN/REVOKING/REVOKED
@@ -107,6 +109,8 @@ CRITICAL
   privileged action has no expected Vault explanation
   OR the detector itself is blind
   OR an issuance/slot event happened when you did not initiate a session
+  OR repeated phase-token rejection crosses the documented threshold
+  OR one invalid cross-VPS signature/exact-session payload is observed
 ```
 
 **Operator rule:** a CRITICAL alert is never auto-dismissed because “the backup still
@@ -1437,6 +1441,606 @@ caller targeting either backup role is CRITICAL.
 
 ---
 
+## 6A. Coordinator authorization-failure detector — VaultAuthFailureWatch
+
+### Why this detector exists
+
+The canonical coordinator rejects a wrong device phase token and rejects invalid
+cross-VPS close/signature payloads. A 256-bit random phase token and Ed25519 signing key
+are not realistically brute-forced by online guessing. However, repeated authorization
+failures are still a high-signal indication of one of the following:
+
+```text
+compromised primary probing its own coordinator
+stale/incorrect secret after a migration
+unexpected tailnet member reaching the coordinator
+malformed automation repeatedly exercising the authorization boundary
+attempted cross-VPS signature/payload forgery
+```
+
+The goal is therefore **visibility, not cryptographic rate-limit theater**. Do not weaken
+the token or signing design because an alarm exists, and do not describe this watcher as
+making a weak secret safe.
+
+This watcher is installed by the mandatory post-install profile rather than the master
+architecture guide because it does not grant, extend, revoke, or close a Vault session.
+It observes authorization failures and publishes alerts.
+
+### 6A.1 Event policy
+
+Use the following event classes:
+
+```text
+AUTH_TOKEN_REJECT
+  wrong local device phase token
+  threshold: 5 events from one source IP in 60 seconds -> CRITICAL
+  threshold: 20 events from one source IP in 10 minutes -> CRITICAL
+
+AUTH_PROTOCOL_REJECT
+  malformed/unsupported coordinator command
+  threshold: 20 events from one source IP in 10 minutes -> CRITICAL
+
+PEER_SIGNATURE_INVALID
+  cross-VPS Ed25519 verification failure
+  threshold: 1 event -> CRITICAL
+
+PEER_PAYLOAD_INVALID
+  signed peer-close payload has wrong target, deadline, freshness, lifetime,
+  canonical encoding, or other exact-session semantics
+  threshold: 1 event -> CRITICAL
+```
+
+A single wrong phase token is not immediately CRITICAL because a stale local secret,
+operator mistake, or incomplete device migration can produce one failure. An invalid
+cross-VPS signature or exact-session payload is different: normal operation should not
+produce it, so one event is high signal.
+
+Never log:
+
+```text
+phase token candidate
+stored phase-token verifier
+Ed25519 private key material
+full STS credential
+restic repository password
+```
+
+Log only the event class, source IP, local coordinator role, command class, and time.
+
+### 6A.2 Add structured security events to the coordinator
+
+The canonical coordinator currently returns protocol rejection text to the caller. During
+this mandatory detection stage, add structured journal events to the same reviewed Go
+source before rebuilding it.
+
+Add this helper near the other coordinator helpers:
+
+```go
+func securityEvent(event, sourceIP, command, detail string) {
+	log.Printf(
+		"VAULT_SECURITY event=%q source_ip=%q command=%q detail=%q",
+		event,
+		sourceIP,
+		command,
+		detail,
+	)
+}
+```
+
+At both local token-rejection branches, log only the command class; do **not** interpolate
+`fields[2]` or any token bytes:
+
+```go
+if !s.authenticateToken(fields[2]) {
+	securityEvent("AUTH_TOKEN_REJECT", sourceIP, strings.ToUpper(fields[0]), "local phase token rejected")
+	_, _ = io.WriteString(conn, "REJECT token\n")
+	return
+}
+```
+
+Before the generic malformed-command rejection, record:
+
+```go
+securityEvent("AUTH_PROTOCOL_REJECT", sourceIP, "UNKNOWN", "unexpected coordinator command shape")
+_, _ = io.WriteString(conn, "REJECT expected JOIN <s3|rhel> <token> or CLOSE_PEER s3 <token>\n")
+return
+```
+
+At cross-VPS signature verification failures, emit:
+
+```go
+securityEvent("PEER_SIGNATURE_INVALID", sourceIP, "PEER", "cross-vps Ed25519 verification failed")
+```
+
+At exact-session peer payload validation failures caused by target, deadline, freshness,
+lifetime, canonical encoding, or equivalent payload-semantic mismatch, emit:
+
+```go
+securityEvent("PEER_PAYLOAD_INVALID", sourceIP, "PEER", "cross-vps payload semantics rejected")
+```
+
+Keep the existing rejection/error return. Logging is additive and must not convert a
+rejection into success.
+
+Reformat, build, and restart exactly as in the canonical coordinator install section:
+
+```bash
+gofmt -w /usr/local/src/vault-device-coordinator/main.go
+cd /usr/local/src/vault-device-coordinator
+go build ./...
+sudo systemctl restart vault-device-coordinator.service
+sudo systemctl is-active vault-device-coordinator.service
+```
+
+Confirm that ordinary successful Vault use does not emit `VAULT_SECURITY`:
+
+```bash
+sudo journalctl -u vault-device-coordinator.service --since '-15 min' --no-pager \
+  | grep 'VAULT_SECURITY' || true
+```
+
+`journalctl` can read service journal entries and can emit JSON records for machine
+processing. The watcher below consumes the coordinator unit's journal stream; it does
+not scrape human-formatted console output.
+
+### 6A.3 Create two SNS-publish-only IAM roles with IAM Roles Anywhere
+
+The VPSs run outside AWS. Do not place an IAM user's long-lived access key on either
+VPS merely to publish security alerts.
+
+Use IAM Roles Anywhere with one X.509 workload certificate per VPS. AWS exchanges the
+certificate-backed signature for temporary AWS credentials. Create two separate roles:
+
+```text
+Vault-AuthFailureWatch-PC-PublishRole
+Vault-AuthFailureWatch-Phone-PublishRole
+```
+
+Each role receives only:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "sns:Publish",
+    "Resource": "VAULT_ALERT_TOPIC_ARN"
+  }]
+}
+```
+
+Do not grant:
+
+```text
+sts:AssumeRole
+lambda:InvokeFunction
+dynamodb:*
+iam:*
+s3:*
+tailscale API authority
+```
+
+Use one Roles Anywhere profile per VPS and constrain each profile to its matching role.
+Issue one leaf certificate for `vault-pc` and one for `vault-phone`. Keep the CA private
+key outside both VPSs. Store only the matching leaf certificate/private key on each VPS.
+
+Recommended VPS paths:
+
+```text
+/etc/vault-auth-watch/rolesanywhere.crt
+/etc/vault-auth-watch/rolesanywhere.key
+```
+
+Permissions:
+
+```bash
+sudo install -d -o root -g root -m 700 /etc/vault-auth-watch
+sudo chown root:root /etc/vault-auth-watch/rolesanywhere.crt \
+  /etc/vault-auth-watch/rolesanywhere.key
+sudo chmod 600 /etc/vault-auth-watch/rolesanywhere.crt \
+  /etc/vault-auth-watch/rolesanywhere.key
+```
+
+Install the current reviewed AWS Roles Anywhere credential helper from the official AWS
+release/documentation path and place it at:
+
+```text
+/usr/local/libexec/aws_signing_helper
+```
+
+Configure a root-only AWS profile on `vault-pc`:
+
+```bash
+sudo install -d -o root -g root -m 700 /root/.aws
+sudo tee /root/.aws/config >/dev/null <<'EOF_AWS'
+[profile vault-auth-watch]
+region = AWS_REGION
+credential_process = /usr/local/libexec/aws_signing_helper credential-process --certificate /etc/vault-auth-watch/rolesanywhere.crt --private-key /etc/vault-auth-watch/rolesanywhere.key --trust-anchor-arn PC_TRUST_ANCHOR_ARN --profile-arn PC_ROLES_ANYWHERE_PROFILE_ARN --role-arn PC_AUTH_FAILURE_PUBLISH_ROLE_ARN
+EOF_AWS
+sudo chmod 600 /root/.aws/config
+```
+
+Use the Phone-specific trust-anchor/profile/role values on `vault-phone`.
+
+Test the identity:
+
+```bash
+sudo AWS_PROFILE=vault-auth-watch aws sts get-caller-identity
+```
+
+The returned ARN must contain only the matching AuthFailureWatch publish role. Then test
+one explicit SNS publication:
+
+```bash
+sudo AWS_PROFILE=vault-auth-watch aws sns publish \
+  --region "$AWS_REGION" \
+  --topic-arn "$VAULT_ALERT_TOPIC_ARN" \
+  --subject '[VAULT TEST] AuthFailureWatch publisher' \
+  --message 'VaultAuthFailureWatch publish-only path test.'
+```
+
+Possession of a VPS leaf certificate/private key can therefore create alert spam if that
+VPS is root-compromised, but the role cannot open Vault sessions, mint backup STS,
+change IAM policy, read/write S3, or disable the AWS detection plane. A root-compromised
+VPS can also suppress its local journal/watcher; this detector is primarily for the
+single-compromised-primary and unexpected-access cases, not a claim of independent
+visibility after full root compromise of the observing VPS.
+
+### 6A.4 Install the journal aggregation watcher
+
+Install:
+
+```bash
+sudo tee /usr/local/libexec/vault-auth-failure-watch.py >/dev/null <<'PY'
+#!/usr/bin/env python3
+import collections
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from typing import Deque, Dict, Tuple
+
+PREFIX = "VAULT_SECURITY "
+EVENT_RE = re.compile(
+    r'event="(?P<event>[A-Z_]+)" source_ip="(?P<source>[^"]*)" '
+    r'command="(?P<command>[^"]*)" detail="(?P<detail>[^"]*)"'
+)
+
+TOPIC_ARN = os.environ["VAULT_ALERT_TOPIC_ARN"]
+AWS_REGION = os.environ["AWS_REGION"]
+COMPARTMENT = os.environ["VAULT_COMPARTMENT"]
+AWS_PROFILE = "vault-auth-watch"
+
+@dataclass(frozen=True)
+class Rule:
+    count: int
+    window: int
+
+RULES = {
+    "AUTH_TOKEN_REJECT": (Rule(5, 60), Rule(20, 600)),
+    "AUTH_PROTOCOL_REJECT": (Rule(20, 600),),
+    "PEER_SIGNATURE_INVALID": (Rule(1, 1),),
+    "PEER_PAYLOAD_INVALID": (Rule(1, 1),),
+}
+
+history: Dict[Tuple[str, str], Deque[float]] = collections.defaultdict(collections.deque)
+last_alert: Dict[Tuple[str, str, int, int], float] = {}
+
+
+def publish(event: str, source: str, command: str, detail: str, rule: Rule, observed: int) -> None:
+    dedupe_key = (event, source, rule.count, rule.window)
+    now = time.time()
+    # Duplicate alerts are safer than silence, but avoid one email per rejected packet.
+    if now - last_alert.get(dedupe_key, 0) < 900:
+        return
+
+    subject = f"[VAULT CRITICAL] {event} on {COMPARTMENT}"
+    message = (
+        f"Vault authorization boundary alert\n"
+        f"compartment={COMPARTMENT}\n"
+        f"event={event}\n"
+        f"source_ip={source}\n"
+        f"command={command}\n"
+        f"detail={detail}\n"
+        f"observed={observed}\n"
+        f"threshold={rule.count}\n"
+        f"window_seconds={rule.window}\n"
+        f"operator_action=preserve evidence, verify source identity, and freeze Vault sessions if unexplained\n"
+    )
+
+    subprocess.run(
+        [
+            "aws", "sns", "publish",
+            "--profile", AWS_PROFILE,
+            "--region", AWS_REGION,
+            "--topic-arn", TOPIC_ARN,
+            "--subject", subject,
+            "--message", message,
+        ],
+        check=True,
+        timeout=30,
+    )
+    last_alert[dedupe_key] = now
+
+
+def process(message: str) -> None:
+    if not message.startswith(PREFIX):
+        return
+    match = EVENT_RE.search(message)
+    if not match:
+        return
+
+    event = match.group("event")
+    source = match.group("source") or "unknown"
+    command = match.group("command")
+    detail = match.group("detail")
+    rules = RULES.get(event)
+    if not rules:
+        return
+
+    now = time.time()
+    key = (event, source)
+    q = history[key]
+    q.append(now)
+    max_window = max(rule.window for rule in rules)
+    while q and q[0] < now - max_window:
+        q.popleft()
+
+    for rule in rules:
+        observed = sum(1 for ts in q if ts >= now - rule.window)
+        if observed >= rule.count:
+            try:
+                publish(event, source, command, detail, rule, observed)
+            except Exception as exc:
+                print(f"VaultAuthFailureWatch publish failure: {exc}", file=sys.stderr, flush=True)
+
+
+def main() -> int:
+    proc = subprocess.Popen(
+        [
+            "journalctl",
+            "-u", "vault-device-coordinator.service",
+            "-f", "-n", "0",
+            "-o", "json",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
+    assert proc.stdout is not None
+    for line in proc.stdout:
+        try:
+            record = json.loads(line)
+            process(str(record.get("MESSAGE", "")))
+        except json.JSONDecodeError:
+            continue
+    return proc.wait()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+PY
+
+sudo chown root:root /usr/local/libexec/vault-auth-failure-watch.py
+sudo chmod 750 /usr/local/libexec/vault-auth-failure-watch.py
+sudo python3 -m py_compile /usr/local/libexec/vault-auth-failure-watch.py
+```
+
+Create the environment file on `vault-pc`:
+
+```bash
+sudo tee /etc/vault-auth-watch/watch.env >/dev/null <<EOF_ENV
+AWS_REGION=${AWS_REGION}
+VAULT_ALERT_TOPIC_ARN=${VAULT_ALERT_TOPIC_ARN}
+VAULT_COMPARTMENT=pc
+EOF_ENV
+sudo chown root:root /etc/vault-auth-watch/watch.env
+sudo chmod 600 /etc/vault-auth-watch/watch.env
+```
+
+Use `VAULT_COMPARTMENT=phone` on `vault-phone`.
+
+Install the service:
+
+```bash
+sudo tee /etc/systemd/system/vault-auth-failure-watch.service >/dev/null <<'UNIT'
+[Unit]
+Description=Vault coordinator authorization-failure watcher
+After=network-online.target vault-device-coordinator.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=/etc/vault-auth-watch/watch.env
+ExecStart=/usr/bin/python3 /usr/local/libexec/vault-auth-failure-watch.py
+Restart=always
+RestartSec=5s
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=no
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now vault-auth-failure-watch.service
+sudo systemctl is-active vault-auth-failure-watch.service
+```
+
+The service requires journal read access and the root-only Roles Anywhere leaf key. It
+has no write requirement outside ordinary systemd runtime state. `ProtectKernelLogs=no`
+is deliberate because journal access must remain functional; do not broaden other
+sandbox settings to solve a logging mistake.
+
+### 6A.5 Add watcher-health visibility
+
+A dead authorization watcher must not fail silently. Add a systemd `OnFailure` handler
+that publishes a CRITICAL message through the same publish-only profile.
+
+Install:
+
+```bash
+sudo tee /usr/local/libexec/vault-auth-watch-failed >/dev/null <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec aws sns publish \
+  --profile vault-auth-watch \
+  --region "${AWS_REGION:?}" \
+  --topic-arn "${VAULT_ALERT_TOPIC_ARN:?}" \
+  --subject "[VAULT CRITICAL] AuthFailureWatch blind on ${VAULT_COMPARTMENT:?}" \
+  --message "VaultAuthFailureWatch service failed on compartment=${VAULT_COMPARTMENT}. Treat authorization-failure visibility as blind until repaired."
+SH
+sudo chown root:root /usr/local/libexec/vault-auth-watch-failed
+sudo chmod 750 /usr/local/libexec/vault-auth-watch-failed
+```
+
+Create:
+
+```bash
+sudo tee /etc/systemd/system/vault-auth-failure-watch-alert@.service >/dev/null <<'UNIT'
+[Unit]
+Description=Alert when VaultAuthFailureWatch fails
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/vault-auth-watch/watch.env
+ExecStart=/usr/local/libexec/vault-auth-watch-failed
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+UMask=0077
+UNIT
+```
+
+Add to `[Unit]` in `vault-auth-failure-watch.service`:
+
+```ini
+OnFailure=vault-auth-failure-watch-alert@%n.service
+```
+
+Then:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart vault-auth-failure-watch.service
+```
+
+Also extend the detector-health review table in Section 7 with:
+
+```text
+vault-auth-failure-watch.service   inactive/failed -> SNS CRITICAL through OnFailure
+```
+
+The OnFailure path shares the same VPS and Roles Anywhere leaf credential, so a full VPS
+root compromise can blind both. This limitation is recorded in the threat model. It does
+not weaken the existing AWS-side SlotWatch, StsWatch, AuditWatch, completion-policy
+watcher, or Lambda health alarms.
+
+### 6A.6 Negative and threshold tests
+
+From the expected primary in the matching tailnet, send five deliberately wrong token
+attempts within 60 seconds to the coordinator listener. Use a generated fake value; do
+not print or paste the real phase token:
+
+```bash
+FAKE_TOKEN="$(openssl rand -hex 32)"
+for i in $(seq 1 5); do
+  printf 'JOIN s3 %s\n' "$FAKE_TOKEN" | nc -w 2 VAULT_COORDINATOR_IP VAULT_COORDINATOR_PORT || true
+  sleep 2
+done
+unset FAKE_TOKEN
+```
+
+Expected:
+
+```text
+all five requests rejected
+no DynamoDB daily slot inserted
+no Lambda issuance
+no STS credential returned
+no S3 proxy admission opened
+coordinator journal contains AUTH_TOKEN_REJECT without token bytes
+one VaultAuthFailureWatch CRITICAL alert arrives
+```
+
+Inspect:
+
+```bash
+sudo journalctl -u vault-device-coordinator.service --since '-5 min' --no-pager \
+  | grep 'VAULT_SECURITY'
+
+sudo journalctl -u vault-auth-failure-watch.service --since '-5 min' --no-pager
+```
+
+Then perform one wrong-token attempt only and wait more than 60 seconds. It must be
+rejected but must not independently trigger the five-in-60-seconds alert.
+
+For cross-VPS validation, use the canonical unit-test harness to feed one invalid
+signature and one exact-session payload mismatch. Do not test this by modifying a
+production VPS private key. Each synthetic event must create an immediate CRITICAL alert.
+
+Finally stop the watcher deliberately:
+
+```bash
+sudo systemctl stop vault-auth-failure-watch.service
+sudo systemctl start vault-auth-failure-watch.service
+```
+
+A normal manual stop may not exercise `OnFailure`. For the acceptance test, temporarily
+replace `ExecStart` with `/usr/bin/false`, run `systemctl daemon-reload`, start the unit,
+verify the CRITICAL blind alert, then restore the reviewed `ExecStart` and restart the
+service.
+
+### 6A.7 Incident response for authorization-failure alerts
+
+```text
+AUTH_TOKEN_REJECT threshold
+  freeze new Vault ceremonies if unexplained
+  identify the source Tailnet node/IP
+  verify whether a migration or stale secret explains the failures
+  if not explained, treat the source primary as suspected compromised
+  expire/revoke that primary node and rotate its phase token/verifier
+  preserve coordinator and watcher journals
+  inspect SlotWatch/StsWatch for any nearby issuance event
+
+PEER_SIGNATURE_INVALID or PEER_PAYLOAD_INVALID
+  stop new Vault ceremonies in both compartments
+  preserve both VPS coordinator journals
+  verify wg-cross peer identity and current VPS public signing keys
+  inspect recent VPS administrator access and provider-console events
+  do not rotate only one log field and continue
+  follow the VPS signing-key compromise/migration procedure if unexplained
+
+WATCHER BLIND
+  treat brute-force/authorization-failure visibility as unavailable
+  existing authorization prevention still applies
+  repair the watcher and Roles Anywhere publish path
+  inspect the missing interval manually before resuming normal operation
+```
+
+Do not interpret a token-guess alarm as evidence that the attacker is close to finding a
+256-bit token. It is evidence that an authorization boundary is being exercised
+abnormally.
+
 ## 7. Gate, completion, and detector health alarms
 
 Create CloudWatch alarms on:
@@ -1487,6 +2091,304 @@ Send every match to `VaultCriticalSecurityAlerts` with subject:
 
 The operator must have a written reason for every root event. Root use is rare enough
 that false-positive fatigue is not an acceptable excuse.
+
+
+---
+
+## 6B. RHEL local-gate authorization-failure detector — VaultRhelAuthFailureWatch
+
+`VaultAuthFailureWatch` on the two Vault VPSs covers phase-token and cross-VPS
+coordinator rejection events. It does not observe requests that reach the independent
+RHEL local dual-signature gate. Complete the detection boundary by instrumenting
+`vault-rhel-gate` and deploying a separate watcher on the RHEL backup host.
+
+This is a mandatory production-entry step. It does not grant or revoke backup authority
+and does not change the RHEL daily-slot or hard-stop behavior.
+
+### 6B.1 Events and alert policy
+
+Emit the following structured journal records from `vault-rhel-gate.service`:
+
+```text
+RHEL_PROOF_SIGNATURE_INVALID
+  one invalid PC-VPS or Phone-VPS Ed25519 signature
+  -> CRITICAL immediately
+
+RHEL_PROOF_PAYLOAD_INVALID
+  signature encoding is valid but target/date/nonce/freshness/session semantics fail
+  -> CRITICAL immediately
+
+RHEL_DONE_TOKEN_REJECT
+  invalid authenticated early-close token
+  -> 5 from the same source in 60 seconds: WARN
+  -> 20 from the same source in 10 minutes: CRITICAL
+
+RHEL_PROTOCOL_REJECT
+  malformed JSON, oversized body, wrong method/path, or structurally invalid request
+  -> 20 from the same source in 10 minutes: CRITICAL
+```
+
+A single malformed HTTP request is not automatically a security incident. A single
+cryptographic proof failure is high signal because normal Vault operation should never
+send a bundle with an invalid infrastructure signature.
+
+Never log:
+
+```text
+raw proof signatures
+raw canonical payload
+DONE token
+repository password
+restic credentials
+Tailscale node keys
+```
+
+Log only the event type, source address, target compartment, and a bounded reason code.
+
+### 6B.2 Add structured security logging to the RHEL gate
+
+Patch the canonical `/usr/local/src/vault-rhel-gate/main.go` source and rebuild the
+existing binary. Add these helpers:
+
+```go
+func requestSource(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func rhelSecurityEvent(event, source, target, reason string) {
+	log.Printf(
+		"VAULT_RHEL_SECURITY event=%q source_ip=%q target=%q reason=%q",
+		event,
+		source,
+		target,
+		reason,
+	)
+}
+```
+
+The source file already imports `net`; do not add a second import. Keep reason values
+from a fixed vocabulary rather than copying attacker-controlled input.
+
+In `openHandler`, log protocol parsing failures:
+
+```go
+source := requestSource(r)
+
+if r.Method != http.MethodPost || r.URL.Path != "/__vault_gate" {
+	rhelSecurityEvent("RHEL_PROTOCOL_REJECT", source, kind, "wrong_method_or_path")
+	http.NotFound(w, r)
+	return
+}
+```
+
+Use bounded reason codes for body/JSON errors:
+
+```go
+rhelSecurityEvent("RHEL_PROTOCOL_REJECT", source, kind, "invalid_body")
+rhelSecurityEvent("RHEL_PROTOCOL_REJECT", source, kind, "invalid_json")
+```
+
+Do not return the internal cryptographic verification error directly to the client.
+Classify it locally:
+
+```go
+p, err := s.verifyBundle(bundle, expectedTarget(kind))
+if err != nil {
+	event := "RHEL_PROOF_PAYLOAD_INVALID"
+	reason := "proof_semantics_rejected"
+
+	switch {
+	case strings.Contains(err.Error(), "signature encoding"):
+		event = "RHEL_PROOF_SIGNATURE_INVALID"
+		reason = "signature_encoding_invalid"
+	case strings.Contains(err.Error(), "signature verification failed"):
+		event = "RHEL_PROOF_SIGNATURE_INVALID"
+		reason = "signature_verification_failed"
+	}
+
+	rhelSecurityEvent(event, source, kind, reason)
+	jsonResponse(w, http.StatusForbidden, map[string]any{
+		"ok": false,
+		"error": "authorization proof rejected",
+	})
+	return
+}
+```
+
+In `doneHandler`, record invalid early-close attempts without logging the token:
+
+```go
+source := requestSource(r)
+
+if r.Method != http.MethodPost || r.URL.Path != "/__vault_done" {
+	rhelSecurityEvent("RHEL_PROTOCOL_REJECT", source, kind, "wrong_done_method_or_path")
+	http.NotFound(w, r)
+	return
+}
+
+if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.DoneToken) != 64 {
+	rhelSecurityEvent("RHEL_DONE_TOKEN_REJECT", source, kind, "invalid_done_token_shape")
+	jsonResponse(w, http.StatusBadRequest, map[string]any{
+		"ok": false,
+		"error": "invalid done token",
+	})
+	return
+}
+```
+
+At the existing constant-time DONE-token comparison failure, add:
+
+```go
+rhelSecurityEvent("RHEL_DONE_TOKEN_REJECT", source, kind, "done_token_mismatch")
+```
+
+Then rebuild and restart:
+
+```bash
+cd /usr/local/src/vault-rhel-gate
+sudo gofmt -w main.go
+sudo go test ./...
+sudo go build -trimpath -ldflags='-s -w' -o vault-rhel-gate main.go
+sudo install -o root -g root -m 0755 vault-rhel-gate /usr/local/sbin/vault-rhel-gate
+sudo systemctl restart vault-rhel-gate.service
+sudo systemctl --no-pager --full status vault-rhel-gate.service
+```
+
+Before replacing the production binary, preserve a root-owned rollback copy:
+
+```bash
+sudo install -o root -g root -m 0755 \
+  /usr/local/sbin/vault-rhel-gate \
+  /usr/local/sbin/vault-rhel-gate.pre-auth-watch
+```
+
+### 6B.3 Workload identity and minimum AWS permission
+
+Do not copy either VPS's Roles Anywhere private key or certificate to RHEL.
+
+Create a third, RHEL-specific X.509 leaf certificate and a separate IAM Roles Anywhere
+profile/role. The role must have exactly one AWS data-plane permission:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "sns:Publish",
+    "Resource": "VAULT_ALERT_TOPIC_ARN"
+  }]
+}
+```
+
+It must not permit:
+
+```text
+sts:AssumeRole
+iam:*
+lambda:InvokeFunction
+dynamodb:*
+s3:*
+tailscale administration
+```
+
+Store the RHEL leaf private key root-only and configure the Roles Anywhere credential
+helper exactly as in Section 6A, but use distinct names:
+
+```text
+role:     Vault-RHEL-AuthFailure-PublishRole
+profile:  Vault-RHEL-AuthFailure-PublishProfile
+cert:     /etc/vault-auth-watch/rhel-leaf.crt
+key:      /etc/vault-auth-watch/rhel-leaf.key
+```
+
+Compromise of this identity can publish alert spam to the exact topic; it cannot open,
+extend, or revoke a Vault backup session.
+
+### 6B.4 Install the RHEL watcher
+
+Reuse the reviewed `vault-auth-failure-watch.py` implementation from Section 6A, but
+install a separate configuration and systemd instance with:
+
+```text
+VAULT_COMPARTMENT=rhel
+VAULT_JOURNAL_UNIT=vault-rhel-gate.service
+VAULT_JOURNAL_PREFIX=VAULT_RHEL_SECURITY
+```
+
+Add these rules to its fixed rule table:
+
+```python
+"RHEL_DONE_TOKEN_REJECT": (
+    Rule(5, 60, "WARN"),
+    Rule(20, 600, "CRITICAL"),
+),
+"RHEL_PROTOCOL_REJECT": (
+    Rule(20, 600, "CRITICAL"),
+),
+"RHEL_PROOF_SIGNATURE_INVALID": (
+    Rule(1, 1, "CRITICAL"),
+),
+"RHEL_PROOF_PAYLOAD_INVALID": (
+    Rule(1, 1, "CRITICAL"),
+),
+```
+
+Use a separate persistent cursor/state path:
+
+```text
+/var/lib/vault-auth-failure-watch/rhel-state.json
+```
+
+Create:
+
+```text
+vault-rhel-auth-failure-watch.service
+vault-rhel-auth-failure-watch-failure.service
+```
+
+The failure unit publishes:
+
+```text
+VaultRhelAuthFailureWatch service failed.
+Treat RHEL local authorization-failure visibility as blind until repaired.
+```
+
+Do not make `vault-rhel-gate.service` depend on the watcher. Detection failure must
+create a loud blind-state alert and operational stop condition, not make the local gate
+silently inherit an additional availability dependency.
+
+### 6B.5 Acceptance tests
+
+Perform these tests before production:
+
+```text
+[ ] One malformed gate request creates RHEL_PROTOCOL_REJECT but no CRITICAL alert.
+[ ] Twenty malformed requests from one source inside ten minutes create one CRITICAL alert.
+[ ] Five invalid DONE tokens inside sixty seconds create WARN.
+[ ] Twenty invalid DONE tokens inside ten minutes create CRITICAL.
+[ ] One proof with a modified signature creates RHEL_PROOF_SIGNATURE_INVALID and immediate CRITICAL.
+[ ] One correctly signed proof with a modified target/deadline creates RHEL_PROOF_PAYLOAD_INVALID and immediate CRITICAL.
+[ ] Journal records contain no raw proof, signature, DONE token, or repository credential.
+[ ] Disabling the watcher triggers its failure/blindness notification path.
+[ ] The RHEL Roles Anywhere identity can publish only to the exact security SNS topic.
+[ ] The RHEL Roles Anywhere identity cannot invoke Lambda, access S3/DynamoDB, or assume another role.
+[ ] A legitimate PC and Phone RHEL ceremony still passes unchanged.
+[ ] Daily-slot and signed hard-stop behavior remain unchanged.
+```
+
+### 6B.6 Residual risk
+
+RHEL root can alter `vault-rhel-gate` logs, stop the local watcher, or steal the
+RHEL-specific publish-only certificate. This detector is therefore independent from a
+compromised primary endpoint or either Vault VPS, but not independent from full RHEL
+root compromise.
+
+The preventive controls remain the locally verified dual signatures, repository/day
+slot, isolated backend, and signed systemd hard-stop. Detection does not replace them.
 
 ---
 
@@ -2213,6 +3115,14 @@ Do not sign off production until every item is true:
 [ ] Both five-minute completion reconciliation rules are enabled and target only their matching revoker.
 [ ] Signed CLOSE_PEER closes target S3 proxy admission after exact opposite status REVOKED even when target local DONE is suppressed.
 [ ] Lambda Errors alarms target the security SNS topic, including completion revokers/status/policy watcher.
+[ ] Coordinator security logging emits event class/source/command only and never logs token candidates or secret material.
+[ ] Five wrong local phase-token attempts in 60 seconds produce one AuthFailureWatch CRITICAL without consuming a slot or minting STS.
+[ ] One isolated wrong-token attempt is rejected but does not independently create the threshold alert.
+[ ] One synthetic invalid peer signature produces immediate CRITICAL.
+[ ] One synthetic exact-session peer payload mismatch produces immediate CRITICAL.
+[ ] vault-pc and vault-phone use separate IAM Roles Anywhere leaf certificates and separate publish roles.
+[ ] AuthFailureWatch publish roles have sns:Publish to the exact security topic and no other AWS authorization.
+[ ] AuthFailureWatch service failure exercises the documented blind-alert path.
 [ ] Root-activity alert exists.
 [ ] AWS root has no access keys.
 [ ] AWS root password/recovery record is outside the routine Vault data path.

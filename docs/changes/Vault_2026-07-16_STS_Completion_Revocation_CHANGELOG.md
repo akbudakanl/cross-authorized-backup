@@ -220,3 +220,73 @@ negative and propagation tests
 
 Until this full set passes the documented day-zero tests, retain the older threat-model
 statement: already-issued STS/proxy use may continue until the signed hard deadline.
+
+## 10. Follow-up detection hardening — authorization-failure visibility
+
+A same-day follow-up review asked whether an attacker could silently submit unlimited
+phase-token guesses or forged cross-VPS authorization payloads.
+
+The cryptographic answer did not change:
+
+```text
+256-bit random phase token -> online/offline brute force is not realistic
+Ed25519 private signing key -> guessing a valid private key/signature is not realistic
+```
+
+However, the reviewed coordinator previously rejected a wrong token with `REJECT token`
+without a dedicated rate-aggregated security alarm. Prevention was strong; visibility for
+this specific boundary exercise was incomplete.
+
+The mandatory post-install detection profile now adds `VaultAuthFailureWatch`:
+
+```text
+coordinator emits secret-free structured VAULT_SECURITY journal events
+AUTH_TOKEN_REJECT: 5/source/60 s or 20/source/10 min -> CRITICAL
+AUTH_PROTOCOL_REJECT: 20/source/10 min -> CRITICAL
+PEER_SIGNATURE_INVALID: 1 -> CRITICAL
+PEER_PAYLOAD_INVALID: 1 -> CRITICAL
+journal watcher -> IAM Roles Anywhere temporary credentials -> exact SNS topic
+```
+
+Each VPS has a separate X.509 workload leaf and separate AWS publish role. The role can
+only `sns:Publish` to `VaultCriticalSecurityAlerts`; it has no STS issuance, Lambda,
+DynamoDB, IAM, S3, or Tailscale authority.
+
+This remains a detection layer, not an authorization factor. A root-compromised observing
+VPS can suppress its local event stream/watcher or steal the publish-only leaf key and
+produce alert spam. The threat model records that limitation explicitly.
+
+Documents changed by this follow-up:
+
+```text
+Vault_Post_Install_Detection_and_Credential_Custody.md
+Vault_Threat_Model_and_Risk_Register.md
+Vault_2026-07-16_STS_Completion_Revocation_CHANGELOG.md
+```
+
+The canonical master guide and topology extensions are intentionally unchanged. The
+mandatory detection guide applies the structured coordinator logging patch during the
+post-install production-entry stage.
+
+
+## Follow-up: complete authorization-failure visibility on RHEL
+
+The first authorization-failure detector revision covered the two Vault VPS
+coordinators. The RHEL backup host has an independent local dual-signature gate and
+therefore requires its own observation path.
+
+This follow-up adds:
+
+```text
+structured vault-rhel-gate rejection events
+immediate CRITICAL alert for invalid VPS signatures
+immediate CRITICAL alert for signed-payload semantic failure
+threshold alerts for malformed protocol and invalid DONE tokens
+a separate RHEL X.509 workload identity
+an exact-topic sns:Publish-only IAM role
+a dedicated RHEL watcher, state file, service-failure alarm, and acceptance tests
+```
+
+No RHEL authorization rule changes. Dual signatures, per-repository daily slots,
+backend isolation, and the signed hard-stop remain the preventive controls. The new
+RHEL component is detection-only.
