@@ -146,3 +146,31 @@ A personal audit will compare:
 * the current threat model
 
 The next major architecture decisions should occur only after this audit or after real deployment measurements invalidate a current assumption.
+
+## Potential Future Enhancement: Read-Only Repository Bind Mount
+
+**Classification:** ARCHITECTURE REDESIGN REQUIRED
+
+The current `rest-server` container bind-mounts the repository directory
+(`/var/lib/vault-rhel/repos/{pc,phone}`) with read-write permissions. A more aggressive
+isolation model would make this mount read-only and route writes through a dedicated
+sidecar or FUSE layer that enforces append-only semantics at the filesystem level (not
+just the application level).
+
+This would prevent a compromised `rest-server` from writing arbitrary files to the
+repository even if it bypasses the application-level `--append-only` flag.
+
+**Not implemented because:**
+
+* `rest-server` requires direct write access to the repository directory.
+* Would require a custom write proxy or FUSE filesystem.
+* Significant architectural change with new failure modes.
+* Current mitigations (Podman rootless + SELinux + seccomp + `--network=none`) already
+  make this attack path extremely unlikely.
+
+**Revisit if:**
+
+* A `rest-server` or Go `net/http` CVE demonstrates real-world RCE risk.
+* A mature, audited append-only FUSE layer becomes available.
+* The threat model is upgraded to assume kernel-level adversary capabilities.
+

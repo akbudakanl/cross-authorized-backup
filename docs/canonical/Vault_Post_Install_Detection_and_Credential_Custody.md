@@ -2444,6 +2444,73 @@ Do not use a third-party callback canary by default. It adds another external tr
 privacy dependency. Reconsider it only if you deliberately want that independent third
 party.
 
+### 9.1 Container-level canaries (RHEL rest-server)
+
+If the Advanced RHEL Containment extension is enabled, detect RCE inside the
+`rest-server` Podman container by placing fake credential files **inside the container
+image** but **outside** the bind-mounted `/data` repository directory:
+
+```text
+/.auth-token-master
+/.restic-admin-token
+```
+
+Legitimate `rest-server` only operates on the `/data` path. Any read access to these
+files is evidence of unexpected code execution inside the container.
+
+Monitor with `inotifywait` from a sidecar or host-side process targeting the container's
+OverlayFS merged directory:
+
+```bash
+inotifywait -m -e access /.auth-token-master
+```
+
+The same root-compromise caveat applies: a full host compromise can disable the watcher.
+This is a high-signal tripwire for container-scoped RCE, not an independent guarantee.
+
+### 9.2 Network honeypots (RHEL)
+
+Detect lateral movement attempts or automated port scanning within the RHEL environment
+by listening on commonly targeted but unused ports:
+
+```text
+TCP 22    (if SSH is moved to a non-standard port)
+TCP 8080  (common admin/proxy port)
+TCP 3389  (RDP — should never be used on RHEL)
+```
+
+Use lightweight listeners (netcat or a minimal Python socket) that log and alert on any
+connection attempt. The canonical architecture ensures that the phone and PC never
+connect to anything other than the exact Caddy proxy port.
+
+Any connection to a honeypot port is a CRITICAL event.
+
+### 9.3 Cloud canaries (AWS)
+
+Create deceptive AWS resources that the canonical system never accesses:
+
+```text
+S3 bucket:       vault-backup-archive-admin-do-not-delete
+DynamoDB table:  VaultMasterKeys
+```
+
+Configure CloudTrail to alert on any API call targeting these resources. Because the
+canonical IAM roles are strictly bound to their respective production resources, any
+access attempt indicates credential theft or unauthorized AWS account exploration.
+
+### 9.4 DNS canaries (container egress detection)
+
+If the Advanced RHEL Containment extension is enabled, the `rest-server` container
+operates with `--network=none` and should never perform DNS lookups.
+
+Log all DNS queries on the RHEL host via `systemd-resolved` or a local DNS sinkhole.
+A DNS query originating from a container network namespace (or any unexpected namespace)
+indicates a compromised process attempting to download a secondary payload or beacon to a
+Command and Control (C2) server.
+
+This signal is strongest when combined with `--network=none`. Without network isolation,
+DNS queries from the container are expected and this canary is not useful.
+
 ---
 
 ## 10. Egress: prevention first, detection second
@@ -3202,7 +3269,7 @@ The intended security statement is:
 # PART IV — SERVICE-CONFINEMENT VISIBILITY
 ================================================================================
 
-## 17. Detect hardening drift and confinement failures
+## 25. Detect hardening drift and confinement failures
 
 The canonical production baseline now includes systemd and Podman confinement. Detection
 must observe **drift and failure**, not merely assume the unit files remain unchanged.
@@ -3360,7 +3427,7 @@ log-forwarding extension may publish only structured hardening-health failures t
 existing security alert path; do not give a VPS write authority to detection state that
 can suppress AWS-side alerts.
 
-## 18. RHEL 9 VPS platform, service-identity, and sandbox health
+## 26. RHEL 9 VPS platform, service-identity, and sandbox health
 
 The two Vault VPSs are RHEL 9 BYOL/BYOI hosts. Add the following to the monthly
 infrastructure review and to every post-update review:
