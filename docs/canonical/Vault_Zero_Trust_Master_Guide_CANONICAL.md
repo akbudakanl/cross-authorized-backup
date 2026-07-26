@@ -11827,3 +11827,48 @@ network permits UDP to a controlled relay, apply `Vault_Extension_Peer_Relay_Per
 
 If Tailscale backend/DERP HTTPS is also blocked, abort the backup. There is no direct-S3
 or public-RHEL bypass.
+
+## Section 26 - Troubleshooting (Seccomp & Podman)
+
+(This section is simplified so that non-technical personnel with physical access to the system can intervene in an emergency.)
+
+If the `rest-server` on the RHEL server crashes due to security constraints (Seccomp) or a transfer is interrupted, the backup system may become locked. This typically occurs after system or container runtime updates.
+
+**To Understand the Issue (Journal Logs):**
+Open a terminal on the RHEL server and run the following command:
+```bash
+journalctl -u vault-pc-rest.service -n 50 --no-pager
+```
+If you see a `SIGSYS` (Bad system call) error or a `SECCOMP` block in the output, it means the system is blocking a new command.
+
+**Intervention and Recovery Steps:**
+
+**Step 1: Unlocking the Backup Repository**
+Restic does not corrupt data during interrupted transfers, but it leaves the repository "locked". From your laptop or phone (the device that initiated the backup), run this command:
+```bash
+restic unlock
+```
+*(If this command succeeds, you can try taking a backup again. If it fails again, proceed to Step 2.)*
+
+**Step 2: Temporarily Disabling Seccomp Protection**
+If the issue is caused by Seccomp, you can temporarily remove the restriction until the security profile is repaired.
+On the RHEL server, edit the service file by running:
+```bash
+sudo nano /etc/systemd/system/vault-pc-rest.service
+```
+Find this line in the file:
+`--security-opt seccomp=/etc/vault-rhel/vault-rest-server-seccomp.json \`
+
+Comment it out by adding a `#` at the beginning of the line:
+`# --security-opt seccomp=/etc/vault-rhel/vault-rest-server-seccomp.json \`
+
+Save and exit the file (For Nano: `CTRL+O`, `Enter`, `CTRL+X`).
+
+**Step 3: Restarting the System**
+To apply the changes, run the following commands in order:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart vault-pc-rest.service
+```
+
+Your backup system will now resume working. However, make sure to find the missing command (syscall) and add it to the JSON file to re-enable the protection as soon as possible!
