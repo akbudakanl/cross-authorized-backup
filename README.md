@@ -142,3 +142,25 @@ The repository was initialized after the first major architecture-review phase t
 The 2026-07-16 completion-containment revision is intentionally preserved as a visible design change: the original architecture already prevented one endpoint plus its own MFA path from independently obtaining a fresh S3 session, but successful backup completion still relied too heavily on cooperative endpoint signaling for early closure. The revised design adds independently observed completion, role-session revocation, and signed cross-compartment close authority.
 
 Future changes should be driven by measured deployment behavior, discovered failure modes, or materially changed security assumptions rather than feature accumulation.
+
+### Caddy hardening (RHEL)
+
+Both `vault-caddy-pc.service` and `vault-caddy-phone.service` run under systemd
+sandboxing equivalent in intent to the rootless Podman rest-server containers:
+read-only root filesystem (`ProtectSystem=strict`), all capabilities dropped
+(`CapabilityBoundingSet=`/`AmbientCapabilities=` empty), a user-namespace remap
+(`PrivateUsers=yes`), memory/task limits (`MemoryMax=512M`, `TasksMax=50`), a broad
+syscall group filter (`SystemCallFilter=@system-service`), write^execute memory
+denial (`MemoryDenyWriteExecute=yes`), and an address-family allowlist restricted to
+exactly what the TLS listener and unix-socket upstream require
+(`AF_INET AF_INET6 AF_UNIX`).
+
+Caddy remains the sole network-reachable component in the RHEL backup path; rest-server
+is unreachable except via the unix socket Caddy proxies to, after Caddy's
+method/path allowlist (`@restic`) has already rejected anything outside the exact
+restic REST surface.
+
+**Known deferred item:** running Caddy inside Podman (matching the rest-server
+container model) instead of raw systemd. Not required by the current threat model —
+see `Caddy_Hardening_Implementation_Plan.md` §3 for the full rationale, trigger
+conditions, and implementation outline if revisited.

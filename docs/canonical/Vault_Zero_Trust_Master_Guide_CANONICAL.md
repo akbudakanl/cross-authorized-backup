@@ -7894,6 +7894,9 @@ Do not copy the CA private key or listener private keys to a primary device.
 
 ## 12. Create the Two Rootless Backend Services
 
+> [!NOTE]
+> **(Optional)** The custom Seccomp profile used in the `podman run` commands below (`--security-opt seccomp=...`) and its associated notification system are optional. It is recommended to implement this part after mastering writing seccomp policies. Podman already has its own seccomp policy against container escape scenarios. If you choose not to implement it, simply remove the `--security-opt seccomp=` line from the service definitions.
+
 Create `/etc/systemd/system/vault-rhel-pc-rest-server.service`:
 
 ```ini
@@ -8043,6 +8046,9 @@ https://PC_RHEL_TS_IP:8001 {
         path / /config /keys/* /locks/* /snapshots/* /index/* /data/*
     }
     handle @restic {
+        basicauth {
+            {$VAULT_PC_USER} {$VAULT_PC_HTPASSWD_HASH}
+        }
         reverse_proxy unix//var/lib/vault-rhel/sockets/pc/rest-server.sock
     }
 
@@ -8073,6 +8079,9 @@ https://PHONE_RHEL_TS_IP:8002 {
         path / /config /keys/* /locks/* /snapshots/* /index/* /data/*
     }
     handle @restic {
+        basicauth {
+            {$VAULT_PHONE_USER} {$VAULT_PHONE_HTPASSWD_HASH}
+        }
         reverse_proxy unix//var/lib/vault-rhel/sockets/phone/rest-server.sock
     }
 
@@ -11650,6 +11659,7 @@ Add to both `vault-caddy-pc.service` and `vault-caddy-phone.service`:
 
 ```ini
 PrivateDevices=yes
+PrivateUsers=yes
 ProtectKernelTunables=yes
 ProtectKernelModules=yes
 ProtectKernelLogs=yes
@@ -11660,7 +11670,11 @@ RestrictRealtime=yes
 CapabilityBoundingSet=
 AmbientCapabilities=
 SystemCallArchitectures=native
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallFilter=@system-service
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+MemoryMax=512M
+TasksMax=50
 UMask=0077
 ```
 
@@ -11782,6 +11796,46 @@ Mandatory negative tests:
 [ ] Direct/DERP transport behavior is unchanged by service hardening.
 ```
 
+**Stage A checks (after H4.3 only):**
+
+```text
+[ ] Both units start clean: systemctl daemon-reload && systemctl restart vault-caddy-pc vault-caddy-phone
+[ ] systemctl status shows active (running), no immediate crash-loop
+[ ] TLS handshake still succeeds from a real client against PC_RHEL_TS_IP:8001 and PHONE_RHEL_TS_IP:8002
+[ ] Certificate/key still readable (no ReadOnlyPaths permission errors in journalctl)
+[ ] Log file still being written (ReadWritePaths for the log path unaffected)
+```
+
+**Stage B checks:**
+
+```text
+[ ] systemd-analyze security vault-caddy-pc.service / vault-caddy-phone.service — score improves, no new permission errors
+[ ] Full PC backup cycle succeeds end-to-end
+[ ] Full Phone backup cycle succeeds end-to-end
+[ ] Largest realistic snapshot transfer does not hit MemoryMax=512M (check journalctl for OOM/cgroup kill)
+[ ] TasksMax=50 not hit under concurrent PC+Phone activity, if concurrency is possible
+[ ] MemoryDenyWriteExecute=yes does not crash Caddy on TLS handshake / HTTP/2 negotiation
+[ ] Caddy's outbound connection to its own unix socket upstream still works under RestrictAddressFamilies
+```
+
+**Stage C checks:**
+
+```text
+[ ] SystemCallFilter=@system-service, EPERM mode, zero denials over one full backup cycle on PC
+[ ] Same, zero denials on Phone
+[ ] Any observed denial is symmetric across PC and Phone before being approved (Section 26 rule) — asymmetric denial is fail-closed, do not approve
+[ ] Gate path (/__vault_gate, /__vault_done) still reaches 169.254.10.1:8090 / 169.254.20.1:8090 unaffected
+[ ] Non-allowlisted method/path still returns 404 "Vault protocol path denied" unaffected
+```
+
+**Stage D checks (if implemented):**
+
+```text
+[ ] basicauth at Caddy rejects invalid credentials with a Caddy-side 401
+[ ] rest-server's own access log shows no corresponding entry for the rejected request (confirms it never reached rest-server)
+[ ] Valid credentials still pass through both auth checks (Caddy + rest-server) end-to-end
+```
+
 Any failure in the hard-deadline, daily-slot, exact-device expiry, or repository-isolation
 tests is fail-closed. Revert the last hardening change for that exact service, document
 the incompatible directive, and retest. Do not weaken unrelated units.
@@ -11854,6 +11908,9 @@ If Tailscale backend/DERP HTTPS is also blocked, abort the backup. There is no d
 or public-RHEL bypass.
 
 ## Section 26 - What to do if the transfer process hits a seccomp restriction due to an update
+
+> [!NOTE]
+> **(Optional)** The custom Seccomp restriction and notification system described in this section are optional. It is recommended to implement this part after mastering writing seccomp policies. Podman already has its own seccomp policy against container escape scenarios.
 
 Because this architecture enforces strict Seccomp container isolation with automated updates, a legitimate software update to the `rest-server` binary might occasionally introduce a new system call. When this happens, Seccomp will instantly kill the container and interrupt the backup.
 
