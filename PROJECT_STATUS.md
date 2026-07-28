@@ -181,24 +181,19 @@ repository even if it bypasses the application-level `--append-only` flag.
 * A mature, audited append-only FUSE layer becomes available.
 * The threat model is upgraded to assume kernel-level adversary capabilities.
 
-## Potential Future Enhancement: Human-in-the-loop Single-Click Remediation
+## Rejected Architectural Concepts
 
-**Classification:** ARCHITECTURE REDESIGN REQUIRED
+### 1. Human-in-the-loop Single-Click Remediation
+
+**Classification:** EXPLICITLY REJECTED
 
 Currently, the AWS-side `VaultAuditWatch` lambda sends a passive SNS alert (e.g., email or SMS) if a `devices:core` OAuth token is misused. It does not automatically remediate the issue, adhering to the "Detection is not Prevention" philosophy to avoid giving a cloud Lambda autonomous write access to the Tailnet (which would create a new Single Point of Failure).
 
-A middle-ground enhancement is a "Human-in-the-loop" webhook mechanism (e.g., via AWS API Gateway). The SNS alert would include a cryptographically signed, one-time link. Clicking the link would trigger a strictly scoped, passive Lambda function to revoke the compromised OAuth client.
+A proposed middle-ground was a "Human-in-the-loop" webhook mechanism (e.g., via AWS API Gateway). The alert would include a cryptographically signed, one-time link. Clicking the link would trigger a strictly scoped Lambda function to revoke the compromised OAuth client.
 
-**OOB (Out-of-Band) Alert Routing Consideration:**
-If this is implemented, cross-device alert routing becomes critical. If the Phone is compromised, and security alerts regarding the Phone are delivered to the Phone, the attacker can intercept the alert or silently approve malicious actions.
-To maintain the compartment boundary:
-* PC-tailnet alerts should be delivered to a channel exclusively accessible on the Phone (or an independent device).
-* Phone-tailnet alerts should be delivered to a channel exclusively accessible on the PC (or an independent device).
-
-**Not implemented because:**
-* Requires standing up new AWS infrastructure (API Gateway).
-* Introduces new IAM complexities and token management.
-* Current fail-closed gates (Ed25519) limit the blast radius of a stolen OAuth token to Denial-of-Service, making a 5-minute manual remediation window acceptable.
+**Rejected because:**
+* **Breaches Passive Visibility:** Giving a notification endpoint (e.g., Telegram or E-mail) the power to trigger destructive infrastructure changes means compromising the notification endpoint compromises the Vault.
+* **SPOF Risk:** The architecture requires the notification sinks to have zero write access. The current fail-closed gates (Ed25519) limit the blast radius of a stolen OAuth token to Denial-of-Service, making a 5-minute manual remediation window (where the user logs into the Tailscale Admin console securely) the only acceptable path.
 
 ## Potential Future Enhancement: Network Cloaking with Single Packet Authorization (SPA)
 
