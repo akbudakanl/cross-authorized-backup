@@ -7918,12 +7918,14 @@ ExecStart=/usr/bin/podman run --rm \
   --security-opt=no-new-privileges \
   --memory=512m \
   --pids-limit=100 \
-  -p 169.254.10.1:8081:8080 \
+  --network=none \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   -v /var/lib/vault-rhel/repos/pc:/data:Z \
+  -v /var/lib/vault-rhel/sockets/pc:/sockets:Z \
   -v /etc/vault-rhel/pc.htpasswd:/auth/htpasswd:ro,Z \
   localhost/vault-rest-server:0.14.0 \
   --path /data \
-  --listen :8080 \
+  --listen unix:///sockets/rest-server.sock \
   --append-only \
   --private-repos \
   --htpasswd-file /auth/htpasswd \
@@ -7938,7 +7940,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/vault-rhel/repos/pc /run/vault-resticpc /var/lib/vault-rhel/users/resticpc
+ReadWritePaths=/var/lib/vault-rhel/repos/pc /run/vault-resticpc /var/lib/vault-rhel/users/resticpc /var/lib/vault-rhel/sockets/pc
 ReadOnlyPaths=/etc/vault-rhel/pc.htpasswd
 
 [Install]
@@ -7969,12 +7971,14 @@ ExecStart=/usr/bin/podman run --rm \
   --security-opt=no-new-privileges \
   --memory=512m \
   --pids-limit=100 \
-  -p 169.254.20.1:8082:8080 \
+  --network=none \
+  --tmpfs /tmp:rw,noexec,nosuid,size=64m \
   -v /var/lib/vault-rhel/repos/phone:/data:Z \
+  -v /var/lib/vault-rhel/sockets/phone:/sockets:Z \
   -v /etc/vault-rhel/phone.htpasswd:/auth/htpasswd:ro,Z \
   localhost/vault-rest-server:0.14.0 \
   --path /data \
-  --listen :8080 \
+  --listen unix:///sockets/rest-server.sock \
   --append-only \
   --private-repos \
   --htpasswd-file /auth/htpasswd \
@@ -7989,7 +7993,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/vault-rhel/repos/phone /run/vault-resticphone /var/lib/vault-rhel/users/resticphone
+ReadWritePaths=/var/lib/vault-rhel/repos/phone /run/vault-resticphone /var/lib/vault-rhel/users/resticphone /var/lib/vault-rhel/sockets/phone
 ReadOnlyPaths=/etc/vault-rhel/phone.htpasswd
 
 [Install]
@@ -8037,7 +8041,7 @@ https://PC_RHEL_TS_IP:8001 {
         path / /config /keys/* /locks/* /snapshots/* /index/* /data/*
     }
     handle @restic {
-        reverse_proxy 169.254.10.1:8081
+        reverse_proxy unix//var/lib/vault-rhel/sockets/pc/rest-server.sock
     }
 
     handle {
@@ -8053,12 +8057,32 @@ https://PC_RHEL_TS_IP:8001 {
 
 Create `/etc/vault-rhel/caddy/phone.Caddyfile` with:
 
-```text
-listener PHONE_RHEL_TS_IP:8002
-certificate rhel-phone.crt / rhel-phone.key
-gate host 169.254.20.1:8090
-backend host 169.254.20.1:8082
-log /var/log/vault-rhel-caddy-phone.log
+```caddyfile
+https://PHONE_RHEL_TS_IP:8002 {
+    tls /etc/vault-rhel/tls/rhel-phone.crt /etc/vault-rhel/tls/rhel-phone.key
+
+    @gate path /__vault_gate /__vault_done
+    handle @gate {
+        reverse_proxy 169.254.20.1:8090
+    }
+
+    @restic {
+        method GET POST HEAD DELETE
+        path / /config /keys/* /locks/* /snapshots/* /index/* /data/*
+    }
+    handle @restic {
+        reverse_proxy unix//var/lib/vault-rhel/sockets/phone/rest-server.sock
+    }
+
+    handle {
+        respond "Vault protocol path denied" 404
+    }
+
+    log {
+        output file /var/log/vault-rhel-caddy-phone.log
+        format json
+    }
+}
 ```
 
 Use the same positive REST method/path allowlist. The allowlist narrows parser/request
@@ -8110,7 +8134,7 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
 ReadOnlyPaths=/etc/vault-rhel/caddy/pc.Caddyfile /etc/vault-rhel/tls/rhel-pc.crt /etc/vault-rhel/tls/rhel-pc.key
-ReadWritePaths=/var/lib/vault-caddy-pc /var/log/vault-rhel-caddy-pc.log
+ReadWritePaths=/var/lib/vault-caddy-pc /var/log/vault-rhel-caddy-pc.log /var/lib/vault-rhel/sockets/pc
 
 [Install]
 WantedBy=multi-user.target
@@ -8611,7 +8635,6 @@ func main() {
 		log.Fatal(err)
 	}
 }
-
 ```
 
 Build with a dedicated module:
@@ -8796,9 +8819,9 @@ Expected topology:
 
 ```text
 host namespace:
-  169.254.10.1:8081 only while PC backend active
+  unix//var/lib/vault-rhel/sockets/pc/rest-server.sock only while PC backend active
   169.254.10.1:8090 always, local PC gate
-  169.254.20.1:8082 only while Phone backend active
+  unix//var/lib/vault-rhel/sockets/phone/rest-server.sock only while Phone backend active
   169.254.20.1:8090 always, local Phone gate
 
 vault-pc namespace:
