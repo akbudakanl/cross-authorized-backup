@@ -10,6 +10,13 @@ Pre-deployment architecture review completed.
 
 The project is currently shelved pending personal audit and real deployment testing.
 
+## Documentation Status
+
+*   `docs/canonical/Vault_Zero_Trust_Master_Guide_CANONICAL.md`: **FINALIZED (v1)** - The immutable reference for the core backup architecture.
+*   `docs/canonical/Vault_Post_Install_Detection_and_Credential_Custody.md`: **FINALIZED (v1)** - The reference for the detection plane (AWS VaultAuditWatch) and credential hygiene. Includes Honeypot setup.
+*   `docs/extensions/Vault_Extension_Host_Level_Containment.md`: **PROPOSED** - Advanced hardening for SELinux, kernel monitoring (Falco), and hardware VM isolation.
+*   `docs/extensions/Vault_Extension_OOB_Notification_Routing.md`: **PROPOSED** - Cross-routed notification strategy (PC -> Phone, Phone -> PC) using E-mail and Telegram.
+
 ## Current State
 
 * Canonical architecture drafted
@@ -173,4 +180,37 @@ repository even if it bypasses the application-level `--append-only` flag.
 * A `rest-server` or Go `net/http` CVE demonstrates real-world RCE risk.
 * A mature, audited append-only FUSE layer becomes available.
 * The threat model is upgraded to assume kernel-level adversary capabilities.
+
+## Potential Future Enhancement: Human-in-the-loop Single-Click Remediation
+
+**Classification:** ARCHITECTURE REDESIGN REQUIRED
+
+Currently, the AWS-side `VaultAuditWatch` lambda sends a passive SNS alert (e.g., email or SMS) if a `devices:core` OAuth token is misused. It does not automatically remediate the issue, adhering to the "Detection is not Prevention" philosophy to avoid giving a cloud Lambda autonomous write access to the Tailnet (which would create a new Single Point of Failure).
+
+A middle-ground enhancement is a "Human-in-the-loop" webhook mechanism (e.g., via AWS API Gateway). The SNS alert would include a cryptographically signed, one-time link. Clicking the link would trigger a strictly scoped, passive Lambda function to revoke the compromised OAuth client.
+
+**OOB (Out-of-Band) Alert Routing Consideration:**
+If this is implemented, cross-device alert routing becomes critical. If the Phone is compromised, and security alerts regarding the Phone are delivered to the Phone, the attacker can intercept the alert or silently approve malicious actions.
+To maintain the compartment boundary:
+* PC-tailnet alerts should be delivered to a channel exclusively accessible on the Phone (or an independent device).
+* Phone-tailnet alerts should be delivered to a channel exclusively accessible on the PC (or an independent device).
+
+**Not implemented because:**
+* Requires standing up new AWS infrastructure (API Gateway).
+* Introduces new IAM complexities and token management.
+* Current fail-closed gates (Ed25519) limit the blast radius of a stolen OAuth token to Denial-of-Service, making a 5-minute manual remediation window acceptable.
+
+## Potential Future Enhancement: Network Cloaking with Single Packet Authorization (SPA)
+
+**Classification:** ARCHITECTURE EXTENSION / OPTIONAL HARDENING
+
+Currently, the canonical architecture uses Caddy as an application-layer (L7) gate. Even without a valid Ed25519 cross-signature, Caddy's TCP port (443) remains open to the Tailnet. If an attacker bypasses the Tailscale ACL (e.g., via tag manipulation), they can establish a TCP connection and attempt to exploit memory or parsing bugs in Caddy or the Go TLS stack.
+
+An alternative is to use Single Packet Authorization (SPA) via `fwknop` to completely hide TCP ports from unauthenticated network scanners. The `nftables` policy on RHEL for port 443 (and 22) would be set to `DROP` by default. Before a backup, the client sends an HMAC-signed UDP packet to RHEL, which temporarily opens the TCP port specifically for that client's IP address.
+
+**Not implemented because:**
+* The current Caddy L7 boundary provides a strong, memory-safe (Go) barrier.
+* Introducing `fwknopd` adds a root-privileged C daemon processing unauthenticated UDP packets. While HMAC strongly mitigates parsing risks, it adds complexity and a low-level, hard-to-audit component to a single-maintainer project.
+* The risk of a Go `net/http` or TLS stack CVE is currently deemed low enough to not warrant the operational complexity of a network knock.
+
 

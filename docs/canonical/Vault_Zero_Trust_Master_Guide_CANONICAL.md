@@ -3622,6 +3622,7 @@ sudo firewall-cmd --zone=drop --list-rich-rules
 
 Open a new SSH session before closing the recovery session.
 
+Ensure `PasswordAuthentication` is completely disabled. Since tag manipulation could potentially bypass Tailscale ACLs, do not rely solely on Tailscale to protect SSH. Consider completely isolating SSH from the Vault Tailnet (e.g., running SSH on a physically isolated Admin-only Tailnet) or strictly relying on the public `drop` zone exception above with FIDO2 hardware keys.
 At the OCI VCN/provider-firewall layer, mirror the same intent:
 
 ```text
@@ -6655,7 +6656,7 @@ In the PC-tailnet **Trust credentials** page:
 
 1. Create an OAuth credential.
 2. Grant only **Devices / Core — Write** (`devices:core`).
-3. Select only `tag:vault-expiry-helper` as the credential tag permission.
+3. Select only the target device's tag (e.g., `tag:pc-device` or similar) as the credential tag permission (Tag Ownership) so the token cannot manipulate tags of the VPS or RHEL server.
 4. Do not grant `all`, policy, auth-key, DNS, route, user, Tailnet Lock, or logging
    scopes.
 5. Copy the client ID and client secret once.

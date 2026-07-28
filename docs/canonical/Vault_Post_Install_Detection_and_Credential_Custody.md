@@ -3167,7 +3167,7 @@ Do not sign off production until every item is true:
 [ ] AWS GetWebIdentityToken policy allows only the two exact audiences and <=300 s.
 [ ] Exact PC/Phone expiry mutation actor IDs, expiry OAuth Client IDs, and primary NodeIDs are pinned.
 [ ] Normal primary re-auth does not generate CRITICAL.
-[ ] Unallowlisted test-node mutation generates CRITICAL.
+[ ] Unallowlisted test-node mutation (including tag manipulation / setTags) generates CRITICAL.
 [ ] Broken WIF produces DETECTION BLIND after two polls.
 [ ] Restored WIF produces recovery INFO.
 [ ] CloudTrail management events are recorded; S3 data events are not enabled by default.
@@ -3198,7 +3198,7 @@ Do not sign off production until every item is true:
 [ ] vault-pc and vault-phone do not share an ordinary software SSH private key.
 [ ] FIDO-backed or otherwise compartment-specific SSH admin credentials are tested.
 [ ] Provider owner accounts use unique credentials and phishing-resistant MFA where supported.
-[ ] PC and Phone devices:core secrets are distinct and confined to their own VPS.
+[ ] PC and Phone devices:core OAuth clients have their Tag Ownership scoped exclusively to their respective target device tags (e.g., tag:pc-device).
 [ ] Cross-VPS signing private keys have never been co-located.
 [ ] Incident response contact/checklist is available without decrypting the Vault repositories.
 ```
