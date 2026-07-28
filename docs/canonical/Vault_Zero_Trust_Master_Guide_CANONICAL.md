@@ -7916,6 +7916,7 @@ ExecStart=/usr/bin/podman run --rm \
   --read-only \
   --cap-drop=all \
   --security-opt=no-new-privileges \
+  --security-opt seccomp=/etc/vault-rhel/vault-rest-server-seccomp.json \
   --memory=512m \
   --pids-limit=100 \
   --network=none \
@@ -7969,6 +7970,7 @@ ExecStart=/usr/bin/podman run --rm \
   --read-only \
   --cap-drop=all \
   --security-opt=no-new-privileges \
+  --security-opt seccomp=/etc/vault-rhel/vault-rest-server-seccomp.json \
   --memory=512m \
   --pids-limit=100 \
   --network=none \
@@ -8736,8 +8738,7 @@ Only then does it create, using `O_CREAT|O_EXCL`, one of:
 ```
 
 The slot is consumed **before** the hard-stop timer and backend start. If timer
-scheduling or service start fails, the slot remains consumed and there is no fresh open
-that day. This is intentional fail-closed behavior.
+scheduling or service-start failure is fail-closed and the service is not started again by a later gate request.
 
 A repeated HTTP request for the **same ceremony ID** is idempotent only while the
 matching backend is already active: it returns the same `done_token`. It does not create
@@ -11852,47 +11853,37 @@ network permits UDP to a controlled relay, apply `Vault_Extension_Peer_Relay_Per
 If Tailscale backend/DERP HTTPS is also blocked, abort the backup. There is no direct-S3
 or public-RHEL bypass.
 
-## Section 26 - Troubleshooting (Seccomp & Podman)
+## Section 26 - What to do if the transfer process hits a seccomp restriction due to an update
 
-(This section is simplified so that non-technical personnel with physical access to the system can intervene in an emergency.)
+Because this architecture enforces strict Seccomp container isolation with automated updates, a legitimate software update to the `rest-server` binary might occasionally introduce a new system call. When this happens, Seccomp will instantly kill the container and interrupt the backup.
 
-If the `rest-server` on the RHEL server crashes due to security constraints (Seccomp) or a transfer is interrupted, the backup system may become locked. This typically occurs after system or container runtime updates.
+This system is designed for **Friend-Assisted Remediation**. If you lose access, a non-technical person with physical access to the RHEL server can help you recover it using two simple terminal commands: `vault-check-block` and `vault-approve-syscall`.
 
-**To Understand the Issue (Journal Logs):**
-Open a terminal on the RHEL server and run the following command:
+### Phase 1: Verify the Anomaly
+Before approving any blocked commands, you must manually verify that the block was caused by a legitimate update and not an attacker.
+1. **The "Both Devices Must Fail" Rule:** Because both the PC and Phone containers run the exact same `rest-server` binary, a new system call requirement should trigger on **both** devices when they attempt their respective backups. If the PC backup fails due to Seccomp but the Phone backup succeeds without issue, this is a massive anomaly indicating the PC container executed a different (potentially malicious) code path. Do not approve the syscall!
+2. **Google the Syscall:** Once your friend runs `vault-check-block` and texts you the name of the blocked syscall (e.g., `epoll_pwait`), search for it online to understand what it does.
+3. **Check Software Updates:** Check the recent release notes for the `rest-server` software or the Go compiler. Verify if network or memory allocation changes were recently introduced that logically align with the blocked syscall.
+
+### Phase 2: Intervention and Recovery Steps
+
+**Step 1: Check the Blocked Syscall**
+Ask the person with physical access to log into the RHEL server terminal and run:
 ```bash
-journalctl -u vault-pc-rest.service -n 50 --no-pager
+vault-check-block
 ```
-If you see a `SIGSYS` (Bad system call) error or a `SECCOMP` block in the output, it means the system is blocking a new command.
+They should copy the output (e.g., *"The backup container was killed because it attempted to use system call: epoll_pwait (Syscall #232)"*) and send it to you.
 
-**Intervention and Recovery Steps:**
+**Step 2: Authorize the Syscall**
+Once you have performed the three verification checks in Phase 1 and are confident it is safe, tell your friend to run the approval alias with the name of the syscall. For example:
+```bash
+vault-approve-syscall epoll_pwait
+```
+This script will automatically append the syscall to the Seccomp whitelist JSON file and instantly restart both container services.
 
-**Step 1: Unlocking the Backup Repository**
-Restic does not corrupt data during interrupted transfers, but it leaves the repository "locked". From your laptop or phone (the device that initiated the backup), run this command:
+**Step 3: Unlocking the Backup Repository**
+Because the transfer was abruptly killed, Restic leaves the repository "locked" (though data is never corrupted). From your laptop or phone, run:
 ```bash
 restic unlock
 ```
-*(If this command succeeds, you can try taking a backup again. If it fails again, proceed to Step 2.)*
-
-**Step 2: Temporarily Disabling Seccomp Protection**
-If the issue is caused by Seccomp, you can temporarily remove the restriction until the security profile is repaired.
-On the RHEL server, edit the service file by running:
-```bash
-sudo nano /etc/systemd/system/vault-pc-rest.service
-```
-Find this line in the file:
-`--security-opt seccomp=/etc/vault-rhel/vault-rest-server-seccomp.json \`
-
-Comment it out by adding a `#` at the beginning of the line:
-`# --security-opt seccomp=/etc/vault-rhel/vault-rest-server-seccomp.json \`
-
-Save and exit the file (For Nano: `CTRL+O`, `Enter`, `CTRL+X`).
-
-**Step 3: Restarting the System**
-To apply the changes, run the following commands in order:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl restart vault-pc-rest.service
-```
-
-Your backup system will now resume working. However, make sure to find the missing command (syscall) and add it to the JSON file to re-enable the protection as soon as possible!
+You can now resume your backups!
