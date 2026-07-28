@@ -35,6 +35,12 @@ The threat model is particularly concerned with compromised-endpoint abuse and b
 
 The project does **not** claim to be ransomware-proof.
 
+## Trust Model & System Assumptions
+
+This system operates strictly on a **Trust-On-First-Use (TOFU)** model:
+* **Initial Clean State:** It is assumed that all participating endpoints and infrastructure—the computer, phone, and RHEL backup server—are completely secure, uncompromised, and free of any malicious software at the time of initial system installation and cryptographic key generation.
+* **Post-Provisioning Protection:** The threat model specifically addresses post-installation security degradation, preventing an endpoint that becomes compromised *after* initial deployment from unilaterally abusing backup credentials, corrupting recovery paths, or minting unauthorized backup sessions.
+
 ## Authorization Model
 
 Fresh backup authorization is intentionally asymmetric with session closure.
