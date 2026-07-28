@@ -86,7 +86,7 @@ This question gradually shifted the design from a conventional personal backup d
 **Experimental / pre-deployment architecture**
 
 Architecture baseline established: **2026-07-15**  
-Latest security-design revision: **2026-07-16**
+Latest security-design revision: **2026-07-28**
 
 The current design has undergone extensive architecture and threat-model review.
 
