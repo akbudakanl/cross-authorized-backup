@@ -3633,17 +3633,35 @@ PasswordAuthentication no
 AuthenticationMethods publickey,keyboard-interactive
 ```
 
+> **Alternative: Multi-Party Authentication via Tailscale SSH Approvals**
+> If you require strict multi-device cryptographic authorization (e.g., initiating the SSH connection from the PC but requiring a cryptographic approval signature from the Phone's Tailscale app) rather than using a TOTP code, you must abandon native OpenSSH and enable **Tailscale SSH**.
+> This requires rewriting your Tailscale ACLs to use `action: check` (Tailnet Lock / SSH Approvals), allowing the Phone to cryptographically sign and approve the PC's incoming SSH session. This approach provides true multi-party SSH authorization but introduces a strict dependency on the Tailscale control plane for server administration.
+
+
 **Step 2: 1-Strike Lockdown (pam_faillock)**
 Configure RHEL's authselect/PAM stack (`/etc/security/faillock.conf`) with the following strict parameters:
 ```text
 deny = 1
 unlock_time = 0
 ```
-*Note: `unlock_time = 0` means the account will never automatically unlock. If you (or an attacker) fail the TOTP or Passphrase even once, the SSH account is permanently locked. You must log in via your cloud provider's out-of-band Web Console to run `faillock --user <admin_user> --reset` to restore SSH access.*
+*Note: `unlock_time = 0` means the account will never automatically unlock upon a single failure.*
 
 **Step 3: Notification Hook (pam_exec)**
-Create a bash script that triggers a webhook (e.g., to a generic notification service URL) and hook it into your PAM stack using `pam_exec.so`. Ensure this script executes whenever an auth failure occurs, instantly alerting you of the lock event so you can review it via the Web Console.
+Create a bash script that triggers a webhook (e.g., to a generic notification service URL) and hook it into your PAM stack using `pam_exec.so`. Ensure this script executes whenever an auth failure occurs, instantly alerting you of the lock event.
 
+**Step 4: Cross-Device SSH Unlock (Recovery Key)**
+To recover from a `pam_faillock` lockout without relying on a Cloud Provider's Web Console, we implement a **Cross-Device Unlock** architecture:
+1. Generate a dedicated Ed25519 `Recovery Key` on your *opposite* device (e.g., generate on the Phone to unlock the PC's VPS). Secure this key with a strong passphrase stored in your password manager.
+2. Add the public portion of this recovery key to the target VPS's `/root/.ssh/authorized_keys` (or admin user), prepending it with a strict SSH `command="..."` restriction to only allow unlocking:
+   ```text
+   command="/usr/sbin/faillock --user admin_user --reset",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3... phone_recovery_key
+   ```
+3. Configure `/etc/ssh/sshd_config` to exempt this specific recovery key (or a dedicated `unlocker` user) from the TOTP requirement using a `Match` block, as the forced command inherently prevents shell access:
+   ```text
+   Match User unlocker
+       AuthenticationMethods publickey
+   ```
+*Result:* If an attacker locks out `vault-pc`, you use your physical Phone and its passphrase-protected recovery key to send the unlock signal. If the attacker steals the Phone's recovery key and attacks `vault-phone`, the `command="..."` restriction prevents them from getting a shell, rendering the stolen key useless for lateral movement.
 
 
 #### Path B: Physical Server Deployment (No-SSH Baseline - Recommended)
