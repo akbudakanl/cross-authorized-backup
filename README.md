@@ -81,6 +81,18 @@ During architecture review, the project evolved after examining a different prob
 
 This question gradually shifted the design from a conventional personal backup deployment toward a threat-model-driven backup authorization architecture.
 
+## Future Security Considerations (Post-Quantum)
+
+The current cross-authorization plane relies on Ed25519 signatures. While Ed25519 provides strong security against conventional attacks, it is theoretically vulnerable to Cryptographically Relevant Quantum Computers (CRQCs) using Shor's algorithm. 
+
+Because the `vault-pc` and `vault-phone` public keys are static, an adversary with access to a CRQC could derive the private keys over time and instantly forge the dual-socket authorization signatures (e.g. `S3_PC` or `RHEL_PHONE` payloads) to bypass the AWS Lambda or RHEL gates. Rate limiting or time-outs cannot protect against this, as the forged signatures would appear mathematically valid and timely.
+
+To achieve quantum resistance for the authorization plane in the future, the architecture must migrate from Ed25519 to NIST-standardized Post-Quantum Cryptography (PQC) digital signatures:
+- **ML-DSA (CRYSTALS-Dilithium)** or **SLH-DSA (SPHINCS+)** for VPS-to-VPS and VPS-to-Lambda signatures.
+- **Hybrid Approach:** A transition period should use a hybrid signature (e.g., Ed25519 + ML-DSA) where AWS Lambda/RHEL require both to be valid, providing protection against both quantum threats and potential mathematical flaws in the new PQC algorithms.
+
+*(Note: The actual backup data is encrypted by restic using AES-256, which is symmetric and remains highly resistant to quantum attacks via Grover's algorithm.)*
+
 ## Status
 
 **Experimental / pre-deployment architecture**
