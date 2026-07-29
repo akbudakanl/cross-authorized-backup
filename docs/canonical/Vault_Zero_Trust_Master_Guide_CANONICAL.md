@@ -9075,23 +9075,36 @@ set -euo pipefail
 
 PC_UNIT='vault-rhel-pc-rest-server.service'
 PHONE_UNIT='vault-rhel-phone-rest-server.service'
-MIN_UP_SECONDS=900
-COOLDOWN_SECONDS=300
+STATE_DIR='/run/vault-rhel'
+STATE_FILE="${STATE_DIR}/last_active"
+BOOT_TIMEOUT=3600
+IDLE_TIMEOUT=900
 
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+
+NOW="$(date +%s)"
 UP="$(cut -d. -f1 /proc/uptime)"
-(( UP >= MIN_UP_SECONDS )) || exit 0
 
-systemctl is-active --quiet "$PC_UNIT" && exit 0
-systemctl is-active --quiet "$PHONE_UNIT" && exit 0
+if systemctl is-active --quiet "$PC_UNIT" || systemctl is-active --quiet "$PHONE_UNIT"; then
+  echo "$NOW" > "$STATE_FILE"
+  exit 0
+fi
 
-sleep "$COOLDOWN_SECONDS"
-
-systemctl is-active --quiet "$PC_UNIT" && exit 0
-systemctl is-active --quiet "$PHONE_UNIT" && exit 0
-
-/usr/local/sbin/vault-rhel-capacity-guard
-sync
-systemctl poweroff
+if [[ -f "$STATE_FILE" ]]; then
+  LAST_ACTIVE="$(cat "$STATE_FILE")"
+  if [[ "$LAST_ACTIVE" =~ ^[0-9]+$ ]]; then
+    if (( NOW - LAST_ACTIVE >= IDLE_TIMEOUT )); then
+      /usr/local/sbin/vault-rhel-capacity-guard
+      sync
+      systemctl poweroff
+    fi
+  fi
+elif (( UP >= BOOT_TIMEOUT )); then
+  /usr/local/sbin/vault-rhel-capacity-guard
+  sync
+  systemctl poweroff
+fi
 ```
 
 A timer may call this every five minutes. The cooldown is an operational convenience;
@@ -11651,6 +11664,49 @@ Enforcing
 
 The `:Z` labels in the canonical bind mounts are retained. Do not work around an AVC by
 adding `--security-opt label=disable`. Inspect and correct the exact label/path problem.
+
+### H4.1.1 Advanced Hardening: Kata Containers MicroVM Isolation (Path A)
+
+For extreme isolation against host-kernel exploits (e.g., container breakout 0-days), you can replace the standard OCI runtime (`crun`/`runc`) with **Kata Containers**. This wraps the rootless rest-server container in a hardware-isolated Firecracker MicroVM, without breaking the existing Podman architecture or SELinux labeling.
+
+#### 1. Modify the Podman Command
+
+Add the `--runtime=kata-runtime` flag to your rootless `podman run` invocation for the `rest-server` service:
+
+```bash
+podman run -d \
+  --runtime=kata-runtime \
+  --name=vault-rest-server-pc \
+  --read-only \
+  --cap-drop=all \
+  --security-opt=no-new-privileges \
+  --memory=512m \
+  --pids-limit=100 \
+  -v /var/lib/vault-rhel/repos/pc:/data:Z \
+  -v /etc/vault-rhel/pc.htpasswd:/auth/htpasswd:ro,Z \
+  rest-server:latest
+```
+
+#### 2. Secure SELinux Policy Generation Workflow
+
+Kata Containers requires access to virtualization devices (like `/dev/kvm` and `/dev/vhost-vsock`) to launch the MicroVM. RHEL's enforcing SELinux will initially block this. Do not rely on a naive "Trust On First Use" (TOFU) capture. Instead, use this mature workflow to ensure exact, minimal permissions:
+
+1. **Scope Permissive Mode:** Temporarily put the relevant Kata/QEMU domains in permissive mode so the process can run fully and log all required access without failing mid-boot:
+   ```bash
+   semanage permissive -a <kata_domain_t>
+   ```
+2. **Exercise the Full Workload:** Run a complete backup cycle, restart the container, and simulate a failure (e.g., kill the guest agent) to capture steady-state logs, not just cold-boot behavior.
+3. **Review the Denials:** Use `audit2allow -w -a` to read the plain-English explanation of why each denial occurred. Verify it only targets hardware/virtualization access.
+4. **The Critical Verification Step (True Domain & Host-Side MAC Test):**
+   *   **Identify True Process:** The process touching the repo on the host is likely `virtiofsd`, not `kata-shim`. Run `ps -eZ | grep -E 'virtiofsd|qemu|kata-shim'` during a backup to find the true domain (`<virtiofsd_domain_t>`).
+   *   **Identify Repo Types:** Check the actual SELinux types of both repositories using `ls -Z /var/lib/vault-rhel/repos/pc` and `.../phone`. Notice they share the same base type but have different MCS categories.
+   *   **Query the Policy:** Run `sesearch --allow -s <virtiofsd_domain_t> -t <repo_type> -c file` to precisely see the granted permissions.
+   *   **Empirical Validation (Host-Side):** Do *not* test by trying to access the opposite repo from inside the Kata guest (that only tests Mount Namespaces via `ENOENT`). Instead, impersonate the daemon directly on the host to explicitly test the SELinux MAC layer:
+       ```bash
+       sudo runcon -t <virtiofsd_domain_t> -- cat /var/lib/vault-rhel/repos/phone/config
+       ```
+       This **must** result in an `AVC Denial` (Permission Denied). If it succeeds, your policy is dangerously broad.
+5. **Load and Enforce:** Once verified, compile and load the policy module (`semodule -i`), then remove the permissive scope (`semanage permissive -d <kata_domain_t>`). Repeat this capture process after standard system updates (`dnf update`), not just major Kata releases.
 
 ### H4.2 Complete the backend systemd confinement
 
