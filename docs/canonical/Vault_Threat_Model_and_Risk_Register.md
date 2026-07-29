@@ -754,6 +754,11 @@ A change that causes the signed hard-stop timer, exact-device expiry, daily-slot
 enforcement, or repository isolation to fail is classified as HIGH severity even if
 `systemd-analyze security` reports a numerically lower exposure score.
 
+### H-R4 — Virtiofsd Sandbox Escape / Write Primitive Abuse
+
+When using Kata Containers/Firecracker for MicroVM isolation, the host-to-guest filesystem bridge (`virtiofsd`) presents a critical attack surface. A compromise of `virtiofsd` could theoretically allow an attacker to escape the MicroVM or read/write arbitrary host files.
+While this risk is heavily mitigated by SELinux enforcing mode, namespace/chroot sandboxing, and host filesystem `noexec`/`nodev` restrictions (as defined in the CANONICAL guide), a residual risk remains for the `rest-server` container. Because the `rest-server` inherently requires write access to the host repository, it cannot benefit from the `:ro` (read-only) mount mitigation applied to Caddy. If a novel zero-day in `virtiofsd` bypasses the `namespace` sandbox and SELinux, the attacker could theoretically corrupt the backup repository. This underscores the necessity of independent, off-site replication outside the scope of the primary RHEL host.
+
 ## APPENDIX P — RHEL 9 BYOL/BYOI VPS PLATFORM DELTA
 
 The canonical `vault-pc` and `vault-phone` hosts are RHEL 9 BYOL/BYOI systems on OCI

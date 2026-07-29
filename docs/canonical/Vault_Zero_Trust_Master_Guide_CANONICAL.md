@@ -11708,6 +11708,20 @@ Kata Containers requires access to virtualization devices (like `/dev/kvm` and `
        This **must** result in an `AVC Denial` (Permission Denied). If it succeeds, your policy is dangerously broad.
 5. **Load and Enforce:** Once verified, compile and load the policy module (`semodule -i`), then remove the permissive scope (`semanage permissive -d <kata_domain_t>`). Repeat this capture process after standard system updates (`dnf update`), not just major Kata releases.
 
+#### 3. Virtiofsd Sandbox Hardening (Zero Trust requirement)
+
+In Kata Containers (especially with the modern Rust `virtiofsd`), you must enforce internal sandboxing for the daemon. Even though we rely on SELinux externally, a true **Zero Trust** posture requires defense-in-depth against `virtiofsd` vulnerabilities (such as symlink traversal).
+1. Check your Kata configuration (usually `/etc/kata-containers/configuration.toml` or similar).
+2. Ensure `virtio_fs_extra_args` includes `--sandbox=namespace` (or at least `--sandbox=chroot`). This traps the daemon in an isolated mount/pid namespace, preventing it from touching host paths outside the exported directory if compromised.
+3. **XATTR Restriction:** Consider disabling or severely restricting `xattr` passthrough in the `virtiofsd` arguments if your backup workflow does not strictly require host-to-guest extended attribute translation. This shrinks the syscall attack surface.
+
+#### 4. Host Filesystem Mount Restrictions (No-Exec, No-Dev)
+
+As an ultimate failsafe against a container-to-host `virtiofsd` breakout, the backend ZFS or Btrfs dataset hosting the backup repositories (`/var/lib/vault-rhel/repos/`) **must** be mounted with extreme restrictions on the host.
+1. Edit the host `/etc/fstab` (or your ZFS dataset properties).
+2. Apply the `noexec,nodev,nosuid` mount options to the repository dataset.
+*Result:* Even if an attacker achieves RCE, exploits `virtiofsd`, and manages to write a malicious binary or a fake device node to the host directory, the host Kernel will outright refuse to execute the binary or mount the device.
+
 ### H4.2 Complete the backend systemd confinement
 
 Add the following lines to **both** rootless rest-server units:
@@ -11788,6 +11802,10 @@ podman run -d \
   caddy:latest
 ```
 *(Note: `--network=host` is safe here because the container is already trapped inside the isolated Linux network namespace built in step 12. Alternatively, map only the required port).*
+
+> **Virtiofsd Attack Surface Reduction (The `:ro` Benefit):**
+> Notice the `:ro` (read-only) flag on Caddy's configuration and certificate volume mounts. This is a massive security advantage. The majority of `virtiofsd` vulnerabilities require the guest to write data (e.g., crafting malicious symlinks). By forcing the mounts to be read-only, we neutralize this entire class of exploits for the Caddy MicroVM. 
+> *Why not do this for rest-server?* The `rest-server` MicroVM inherently requires write access to the host repository (`/data:Z` without `:ro`) to save incoming backups, so it cannot utilize this specific mitigation. This highlights why isolating Caddy and rest-server into two *separate* MicroVMs with separate `virtiofsd` instances is critical.
 
 #### 2. Apply the Secure SELinux Policy Generation Workflow
 
