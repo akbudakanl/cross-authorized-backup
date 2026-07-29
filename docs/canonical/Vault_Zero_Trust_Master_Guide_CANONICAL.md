@@ -11691,14 +11691,14 @@ podman run -d \
 
 Kata Containers requires access to virtualization devices (like `/dev/kvm` and `/dev/vhost-vsock`) to launch the MicroVM. RHEL's enforcing SELinux will initially block this. Do not rely on a naive "Trust On First Use" (TOFU) capture. Instead, use this mature workflow to ensure exact, minimal permissions:
 
-1. **Scope Permissive Mode:** Temporarily put the relevant Kata/QEMU domains in permissive mode so the process can run fully and log all required access without failing mid-boot:
+1. **Scope Permissive Mode:** Temporarily put the relevant Kata/Firecracker domains in permissive mode so the process can run fully and log all required access without failing mid-boot:
    ```bash
    semanage permissive -a <kata_domain_t>
    ```
 2. **Exercise the Full Workload:** Run a complete backup cycle, restart the container, and simulate a failure (e.g., kill the guest agent) to capture steady-state logs, not just cold-boot behavior.
 3. **Review the Denials:** Use `audit2allow -w -a` to read the plain-English explanation of why each denial occurred. Verify it only targets hardware/virtualization access.
 4. **The Critical Verification Step (True Domain & Host-Side MAC Test):**
-   *   **Identify True Process:** The process touching the repo on the host is likely `virtiofsd`, not `kata-shim`. Run `ps -eZ | grep -E 'virtiofsd|qemu|kata-shim'` during a backup to find the true domain (`<virtiofsd_domain_t>`).
+   *   **Identify True Process:** The process touching the repo on the host is likely `virtiofsd`, not `kata-shim`. Run `ps -eZ | grep -E 'virtiofsd|firecracker|kata-shim'` during a backup to find the true domain (`<virtiofsd_domain_t>`).
    *   **Identify Repo Types:** Check the actual SELinux types of both repositories using `ls -Z /var/lib/vault-rhel/repos/pc` and `.../phone`. Notice they share the same base type but have different MCS categories.
    *   **Query the Policy:** Run `sesearch --allow -s <virtiofsd_domain_t> -t <repo_type> -c file` to precisely see the granted permissions.
    *   **Empirical Validation (Host-Side):** Do *not* test by trying to access the opposite repo from inside the Kata guest (that only tests Mount Namespaces via `ENOENT`). Instead, impersonate the daemon directly on the host to explicitly test the SELinux MAC layer:
@@ -11763,6 +11763,41 @@ give either Caddy unit access to:
 /etc/vault-rhel-maintenance
 /var/lib/vault-rhel/gate
 ```
+
+### H4.3.1 Advanced Hardening: Containerized Caddy via Kata MicroVMs (Path A)
+
+If you have chosen to containerize the `rest-server` via Kata Containers, you can apply the exact same hardware-level MicroVM isolation to Caddy, moving it out of native systemd confinement and into a rootless Kata container.
+
+#### 1. Modify the Caddy Service to Use Podman
+
+Instead of using the extensive systemd `[Service]` hardening (which relies on the shared host kernel), launch Caddy via rootless Podman. Ensure you map the exact configuration, certificate, and log paths required, applying `:Z` SELinux labels:
+
+```bash
+podman run -d \
+  --runtime=kata-runtime \
+  --name=vault-caddy-pc \
+  --network=host \
+  --read-only \
+  --cap-drop=all \
+  --security-opt=no-new-privileges \
+  --memory=512m \
+  --pids-limit=100 \
+  -v /etc/vault-rhel/caddy/Caddyfile-pc:/etc/caddy/Caddyfile:ro,Z \
+  -v /etc/vault-rhel/certs/pc:/certs:ro,Z \
+  -v /var/log/vault-rhel/caddy-pc:/var/log/caddy:Z \
+  caddy:latest
+```
+*(Note: `--network=host` is safe here because the container is already trapped inside the isolated Linux network namespace built in step 12. Alternatively, map only the required port).*
+
+#### 2. Apply the Secure SELinux Policy Generation Workflow
+
+Kata will need virtualization device access to launch the Caddy MicroVM. You must perform the exact same **Secure SELinux Policy Generation Workflow** defined in `H4.1.1 (Step 2)` for the Caddy container.
+
+Crucially, when performing the **Host-Side MAC Test (Step 4)** for Caddy, you must verify that Caddy's `virtiofsd` process is completely blocked from reading the backend data repository:
+```bash
+sudo runcon -t <caddy_virtiofsd_domain_t> -- cat /var/lib/vault-rhel/repos/pc/config
+```
+This test **must** result in an `AVC Denial`. This proves that even if an attacker achieves RCE inside Caddy and breaks out of the container to the MicroVM kernel, SELinux on the host still physically prevents the reverse proxy from reading the backup data.
 
 ### H4.4 Capacity guard
 
