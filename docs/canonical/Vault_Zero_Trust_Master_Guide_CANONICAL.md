@@ -3646,22 +3646,50 @@ unlock_time = 0
 ```
 *Note: `unlock_time = 0` means the account will never automatically unlock upon a single failure.*
 
-**Step 3: Notification Hook (pam_exec)**
-Create a bash script that triggers a webhook (e.g., to a generic notification service URL) and hook it into your PAM stack using `pam_exec.so`. Ensure this script executes whenever an auth failure occurs, instantly alerting you of the lock event.
+**Step 3: Notification Hook & Targeted IP Ban (pam_exec)**
+Create a bash script that triggers a webhook (e.g., to a generic notification service URL) and hook it into your PAM stack using `pam_exec.so`. Ensure this script executes whenever an auth failure occurs.
 
-**Step 4: Cross-Device SSH Unlock (Recovery Key)**
-To recover from a `pam_faillock` lockout without relying on a Cloud Provider's Web Console, we implement a **Cross-Device Unlock** architecture:
-1. Generate a dedicated Ed25519 `Recovery Key` on your *opposite* device (e.g., generate on the Phone to unlock the PC's VPS). Secure this key with a strong passphrase stored in your password manager.
-2. Add the public portion of this recovery key to the target VPS's `/root/.ssh/authorized_keys` (or admin user), prepending it with a strict SSH `command="..."` restriction to only allow unlocking:
+To aggressively prevent further network scanning or lateral movement *without* dropping the entire network interface (which would lock out your recovery tools), implement a **Targeted IP Ban**:
+Inside your `pam_exec` script, capture the `$PAM_RHOST` environment variable (which contains the source IP of the failed attempt) and dynamically drop it using `nftables` or `firewalld`:
+```bash
+nft add rule inet filter input ip saddr $PAM_RHOST drop comment "targeted_ban"
+```
+This isolates the specific attacker instantly while leaving the rest of the Tailnet intact for your own recovery devices.
+
+**Step 4: Advanced Cross-Device SSH Unlock (Recovery Key)**
+To recover from a `pam_faillock` lockout without relying on a Cloud Provider's Web Console, we implement a structurally isolated **Cross-Device Unlock** architecture following Separation of Privileges:
+
+1. **Dedicated User:** Create an unprivileged user strictly for recovery:
+   `useradd -r -s /bin/bash -m -d /var/lib/recovery recovery`
+2. **Centralized Restriction (sshd_config):** Use a `Match` block to structurally separate the recovery channel, exempt it from TOTP, and enforce a static dispatcher script (preventing `authorized_keys` bypasses):
    ```text
-   command="/usr/sbin/faillock --user admin_user --reset",no-port-forwarding,no-x11-forwarding,no-agent-forwarding,no-pty ssh-ed25519 AAAAC3... phone_recovery_key
-   ```
-3. Configure `/etc/ssh/sshd_config` to exempt this specific recovery key (or a dedicated `unlocker` user) from the TOTP requirement using a `Match` block, as the forced command inherently prevents shell access:
-   ```text
-   Match User unlocker
+   Match User recovery
+       AuthorizedKeysFile /etc/ssh/recovery_authorized_keys
+       PasswordAuthentication no
+       PubkeyAuthentication yes
        AuthenticationMethods publickey
+       AllowTcpForwarding no
+       X11Forwarding no
+       PermitTTY no
+       ForceCommand /usr/local/sbin/recovery-handler.sh
    ```
-*Result:* If an attacker locks out `vault-pc`, you use your physical Phone and its passphrase-protected recovery key to send the unlock signal. If the attacker steals the Phone's recovery key and attacks `vault-phone`, the `command="..."` restriction prevents them from getting a shell, rendering the stolen key useless for lateral movement.
+3. **Modern Key Restrictions:** In `/etc/ssh/recovery_authorized_keys`, add your opposite device's public key (e.g. Phone's key) using the `restrict` keyword:
+   `restrict ssh-ed25519 AAAAC3... phone-recovery-key`
+4. **Dispatcher Script (`recovery-handler.sh`):** Never run `$SSH_ORIGINAL_COMMAND` directly. Use a static `case` statement:
+   ```bash
+   #!/usr/bin/env bash
+   set -euo pipefail
+   case "${SSH_ORIGINAL_COMMAND:-status}" in
+     status) sudo /usr/local/sbin/rc-status.sh ;;
+     unlock) sudo /usr/local/sbin/rc-unlock.sh ;;
+     *) echo "invalid command" >&2; exit 1 ;;
+   esac
+   ```
+5. **Static Sudoers:** Grant `sudo` strictly for the parameterless scripts without wildcards:
+   `recovery ALL=(root) NOPASSWD: /usr/local/sbin/rc-status.sh, /usr/local/sbin/rc-unlock.sh`
+   *(In `rc-unlock.sh`, delete the nftables rule by reading the "targeted_ban" comment, rather than accepting external handle IDs).*
+
+*Security Posture & Symmetrical Architecture:* This architecture is fully reciprocal. If an attacker locks out `vault-pc`, you use your physical Phone and its passphrase-protected recovery key to send the unlock signal. Conversely, if `vault-phone` is locked out, you use the PC's recovery key. Even if an attacker steals the recovery key, they cannot gain a shell or execute arbitrary commands. The rate limiting for the recovery key is moot (SSH keys cannot be network brute-forced); the true protection is the key's local passphrase and the strict structural isolation of this recovery channel.
 
 
 #### Path B: Physical Server Deployment (No-SSH Baseline - Recommended)
