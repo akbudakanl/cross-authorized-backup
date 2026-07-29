@@ -81,6 +81,16 @@ During architecture review, the project evolved after examining a different prob
 
 This question gradually shifted the design from a conventional personal backup deployment toward a threat-model-driven backup authorization architecture.
 
+## Personal Design Philosophy & Archival Purpose
+
+This repository represents a highly opinionated, personal architecture tailored to a specific set of security assumptions, hardware constraints, and operational preferences (such as physical console administration without remote SSH).
+
+Rather than serving as a turn-key, one-size-fits-all product for general distribution, this repository functions primarily as:
+1. **A Personal Infrastructure Archive & Blueprint:** A persistent, version-controlled reference to ensure deterministic disaster recovery and track architectural evolution over time.
+2. **An Educational Case Study:** An exploration of applying zero-trust, dual-control, and micro-VM isolation principles to personal-scale 3-2-1 backup infrastructure.
+
+Others are welcome to study, adapt, or draw inspiration from the design decisions documented here.
+
 ## Future Security Considerations (Post-Quantum)
 
 The current cross-authorization plane relies on Ed25519 signatures. While Ed25519 provides strong security against conventional attacks, it is theoretically vulnerable to Cryptographically Relevant Quantum Computers (CRQCs) using Shor's algorithm. 
