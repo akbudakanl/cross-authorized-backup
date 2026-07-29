@@ -3623,6 +3623,15 @@ sudo firewall-cmd --zone=drop --list-rich-rules
 Open a new SSH session before closing the recovery session.
 
 Ensure `PasswordAuthentication` is completely disabled. Since tag manipulation could potentially bypass Tailscale ACLs, do not rely solely on Tailscale to protect SSH. Consider completely isolating SSH from the Vault Tailnet (e.g., running SSH on a physically isolated Admin-only Tailnet) or strictly relying on the public `drop` zone exception above with FIDO2 hardware keys.
+
+> **Physical Server Exception (No-SSH Baseline):**
+> If you are deploying this architecture on a physical machine where you have out-of-band or physical console access (rather than a cloud VPS), it is highly recommended to completely disable the SSH daemon. Removing the remote administrative port aligns perfectly with the Zero Trust methodology.
+> ```bash
+> sudo systemctl disable --now sshd
+> sudo firewall-cmd --permanent --remove-service=ssh
+> sudo firewall-cmd --reload
+> ```
+
 At the OCI VCN/provider-firewall layer, mirror the same intent:
 
 ```text
