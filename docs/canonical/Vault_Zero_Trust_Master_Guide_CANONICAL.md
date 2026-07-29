@@ -3618,7 +3618,33 @@ sudo firewall-cmd --permanent --zone=drop \
 
 sudo firewall-cmd --reload
 ```
-*Ensure `PasswordAuthentication` is completely disabled and FIDO2/SSH keys are required.*
+##### Two-Device SSH Protection (TOTP PAM) & 1-Strike Lockdown
+To protect against an attacker who compromises your PC and steals your SSH private key, you must implement a 3-layer security model combined with a Zero-Tolerance lockdown policy:
+
+1. **Network Layer:** IP Whitelisting (configured above).
+2. **File Layer:** An Ed25519 SSH Key protected by a strong Passphrase.
+3. **Device Layer (TOTP):** A Time-Based One-Time Password (TOTP) module on the RHEL server.
+4. **Zero-Tolerance Lockdown:** A 1-strike ban using `pam_faillock` and `pam_exec`.
+
+**Step 1: TOTP Setup**
+Install a TOTP PAM module (e.g., `google-authenticator` or your preferred alternative) and configure it with an authenticator app on your phone. Then, configure `/etc/ssh/sshd_config` to require both the SSH key and the TOTP code:
+```text
+PasswordAuthentication no
+AuthenticationMethods publickey,keyboard-interactive
+```
+
+**Step 2: 1-Strike Lockdown (pam_faillock)**
+Configure RHEL's authselect/PAM stack (`/etc/security/faillock.conf`) with the following strict parameters:
+```text
+deny = 1
+unlock_time = 0
+```
+*Note: `unlock_time = 0` means the account will never automatically unlock. If you (or an attacker) fail the TOTP or Passphrase even once, the SSH account is permanently locked. You must log in via your cloud provider's out-of-band Web Console to run `faillock --user <admin_user> --reset` to restore SSH access.*
+
+**Step 3: Notification Hook (pam_exec)**
+Create a bash script that triggers a webhook (e.g., to a generic notification service URL) and hook it into your PAM stack using `pam_exec.so`. Ensure this script executes whenever an auth failure occurs, instantly alerting you of the lock event so you can review it via the Web Console.
+
+
 
 #### Path B: Physical Server Deployment (No-SSH Baseline - Recommended)
 If deploying on a physical server with local/out-of-band console access, **do not open port 22**. Completely disable the SSH service from Day 1 to eliminate the remote administrative attack surface entirely:
