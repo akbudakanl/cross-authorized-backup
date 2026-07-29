@@ -9029,6 +9029,27 @@ Interpretation:
 
 Do not automatically delete snapshots in this no-prune variant.
 
+### 19.1 Boot-Time Global Disk Usage Guard
+
+To prevent system instability and ensure a hard limit on capacity, a strict pre-boot check is enforced for the RHEL-based backup server. When the total disk usage of the RHEL server (including system files, other applications, and everything else) reaches or exceeds 85%, all backup operations are strictly prohibited.
+
+**Boot-Time Verification Workflow:**
+1. **Startup Check:** The disk usage ratio is evaluated every time the system boots, strictly *before* the backup services (rest-server Podman capsules and Caddy systemd services) are allowed to start.
+2. **Threshold Exceeded (>=85%):** If the calculated total disk usage is 85% or higher:
+   - The Caddy (systemd) and rest-server (Podman) services will **not** be started.
+   - The backup destination folders (`/var/lib/vault-rhel/repos/`) will be explicitly made **read-only**, completely preventing any future backups.
+3. **Mid-Transfer Tolerance:** Because this guard operates exclusively during the device startup sequence, if the total disk usage is 84% before a backup starts and grows to 90% during the transfer, that specific ongoing transfer will not be interrupted. The lock-down changes will take permanent effect the next day when the RHEL server is booted again and the boot-time check detects the >=85% state.
+
+**Client Experience:**
+When this capacity lockdown is active, attempting to send a backup from the PC (Terminal) or Phone (Termux) will result in a `"rejected"` message displayed on the client screen, as the remote receiver services remain intentionally offline.
+
+**Physical Console Verification:**
+To confirm whether the `"rejected"` status is caused by this disk usage guard, an operator with physical access to the RHEL server console can type the command `usage` into the terminal:
+- The terminal will evaluate and display the current disk usage ratio.
+- If the value is `<85%`, it will output only the disk usage percentage.
+- If the value is `>=85%`, it will output the percentage accompanied by the following explicit warning:
+  `"Backup operations have been stopped because disk usage exceeded 85%."`
+
 ---
 
 ## 20. Power-Up, Cooldown, and Shutdown
