@@ -3604,7 +3604,10 @@ sudo systemctl enable --now firewalld
 sudo firewall-cmd --permanent --zone=drop --change-interface="$PUBLIC_IF"
 ```
 
-Add only the two canonical public inbound exceptions:
+Add the required inbound exception(s) based on your deployment environment:
+
+#### Path A: Cloud VPS Deployment (Remote SSH Required)
+If deploying on a cloud VPS (e.g., OCI), open SSH exclusively for your admin IP, alongside the WireGuard peer port:
 
 ```bash
 sudo firewall-cmd --permanent --zone=drop \
@@ -3614,25 +3617,31 @@ sudo firewall-cmd --permanent --zone=drop \
   --add-rich-rule="rule family=\"ipv4\" source address=\"${PEER_VPS_PUBLIC_IP}/32\" port port=\"51830\" protocol=\"udp\" accept"
 
 sudo firewall-cmd --reload
+```
+*Ensure `PasswordAuthentication` is completely disabled and FIDO2/SSH keys are required.*
 
+#### Path B: Physical Server Deployment (No-SSH Baseline - Recommended)
+If deploying on a physical server with local/out-of-band console access, **do not open port 22**. Completely disable the SSH service from Day 1 to eliminate the remote administrative attack surface entirely:
+
+```bash
+# Open ONLY the WireGuard peer port (No SSH exception added)
+sudo firewall-cmd --permanent --zone=drop \
+  --add-rich-rule="rule family=\"ipv4\" source address=\"${PEER_VPS_PUBLIC_IP}/32\" port port=\"51830\" protocol=\"udp\" accept"
+
+# Disable and mask the SSH daemon entirely
+sudo systemctl disable --now sshd
+sudo firewall-cmd --permanent --remove-service=ssh
+sudo firewall-cmd --reload
+```
+
+Verify your active rules:
+```bash
 sudo firewall-cmd --get-active-zones
 sudo firewall-cmd --zone=drop --list-all
 sudo firewall-cmd --zone=drop --list-rich-rules
 ```
 
-Open a new SSH session before closing the recovery session.
-
-Ensure `PasswordAuthentication` is completely disabled. Since tag manipulation could potentially bypass Tailscale ACLs, do not rely solely on Tailscale to protect SSH. Consider completely isolating SSH from the Vault Tailnet (e.g., running SSH on a physically isolated Admin-only Tailnet) or strictly relying on the public `drop` zone exception above with FIDO2 hardware keys.
-
-> **Physical Server Exception (No-SSH Baseline):**
-> If you are deploying this architecture on a physical machine where you have out-of-band or physical console access (rather than a cloud VPS), it is highly recommended to completely disable the SSH daemon. Removing the remote administrative port aligns perfectly with the Zero Trust methodology.
-> ```bash
-> sudo systemctl disable --now sshd
-> sudo firewall-cmd --permanent --remove-service=ssh
-> sudo firewall-cmd --reload
-> ```
-
-At the OCI VCN/provider-firewall layer, mirror the same intent:
+At the OCI VCN/provider-firewall layer (if applicable), mirror the same intent:
 
 ```text
 SSH       -> operator-approved source only
