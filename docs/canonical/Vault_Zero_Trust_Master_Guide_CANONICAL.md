@@ -321,6 +321,18 @@ Phone plaintext
   └── restic → RHEL /phone repository    (on-premises independent backup)
 ```
 
+> **Totally Self-Hosted 3-2-1 Backup Strategy (Cloudless Alternative)**
+> If you prefer to completely eliminate the AWS S3 (Cloud) dependency while strictly preserving the 3-2-1 backup rule and Zero Trust boundaries, you can use a permanently attached external USB hard drive on the RHEL backup server as the 3rd destination.
+> 
+> To prevent any filesystem parsing vulnerabilities, the block disk images (`.img`) sent from the MicroVMs are **never mounted or parsed** on the RHEL Host. They are treated purely as opaque byte sequences. A host-level systemd timer uses `restic`'s memory-safe Content-Defined Chunking to directly synchronize these `.img` files to the external USB drive without passwords:
+> 
+> ```bash
+> restic init --repo /mnt/usb-backup/rhel-offline-repo --insecure-no-password
+> restic -r /mnt/usb-backup/rhel-offline-repo --insecure-no-password backup /var/lib/vault-rhel/repos/pc.img /var/lib/vault-rhel/repos/phone.img
+> ```
+> 
+> This perfectly handles block-level changes efficiently without copying massive files daily. Even if a MicroVM is compromised and the `.img` is corrupted, the RHEL Host safely backs up the corrupted blob to the USB without interpreting it, keeping the Host pristine.
+
 There is deliberately **no** PC→Phone or Phone→PC backup flow. Removing the flow
 eliminates the direct cross-device Caddy/rest-server attack edge rather than merely
 reducing the amount of time it is open.
