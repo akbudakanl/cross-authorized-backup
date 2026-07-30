@@ -831,7 +831,11 @@ restic can read cold objects; follow the S3 section's cold-storage warnings.
 
 ### 5.1 Disaster Recovery & Corruption Handling (Self-Healing)
 
-If a corruption is found during a `restic check` on a local repository (such as the Mutual Backup Phone/PC repo or the hot RHEL repo) and you successfully perform a `par2 repair` on the corrupted pack file, you **must** run `restic check` again to cryptographically verify the repair. Do not declare recovery successful based on PAR2 alone.
+**Automated Diagnostics (Out-of-Band)**
+This architecture features an automated out-of-band diagnostic workflow. If a corruption is found during a `restic check` on a local repository (such as the hot RHEL repo), the client parses the corrupted pack IDs, runs `restic find` to log the affected files locally, and sends a cryptographic `DIAGNOSE rhel` signal via its VPS. The RHEL server receives this signal through the `wg-cross` tunnel and autonomously runs a systemd-managed `par2 verify` and `par2 repair` task. This completely maintains the Zero Trust model, as the client requires no SSH access to trigger server-side healing. (See `Vault_Extension_Automated_Diagnostics.md` for implementation details and parsing fallback instructions).
+
+**Manual Verification and Healing**
+If you successfully perform a `par2 repair` on the corrupted pack file (either autonomously or manually), you **must** run a full `restic check` again to cryptographically verify the repair. Do not declare recovery successful based on PAR2 alone.
 
 If PAR2 repair fails or is unavailable, and `restic check` continues to report corruption, rolling back to an older snapshot usually will not fix the issue because Restic's deduplication shares identical chunks across all snapshots. Instead, use Restic's self-healing capabilities or the 3-2-1 backup architecture to repair the repository:
 
