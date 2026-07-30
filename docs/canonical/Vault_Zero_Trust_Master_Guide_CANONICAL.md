@@ -7878,14 +7878,12 @@ sudo chown root:resticphone /etc/vault-rhel/phone.htpasswd
 sudo chmod 640 /etc/vault-rhel/phone.htpasswd
 ```
 
-Generate two different strong passwords in the password manager. Copy the PC listener
-plaintext password only to the PC as:
+Generate strong passwords in your password manager for both accounts. Copy the
+plaintext passwords to their respective devices as:
 
 ```text
 ~/.config/vault-secrets/rhel_htpasswd
 ```
-
-and the Phone listener plaintext password only to the Phone at the same local filename.
 
 Verify cross-credential isolation later: the PC password must fail on port `8002`, and
 the Phone password must fail on port `8001`.
@@ -11757,11 +11755,11 @@ adding `--security-opt label=disable`. Inspect and correct the exact label/path 
 
 ### H4.1.1 Advanced Hardening: Kata Containers MicroVM Isolation (Path A)
 
-For extreme isolation against host-kernel exploits (e.g., container breakout 0-days), you can replace the standard OCI runtime (`crun`/`runc`) with **Kata Containers**. This wraps the rootless rest-server container in a hardware-isolated Firecracker MicroVM, without breaking the existing Podman architecture or SELinux labeling.
+For extreme isolation against host-kernel exploits (e.g., container breakout 0-days), you can replace the standard OCI runtime (`crun`/`runc`) with **Kata Containers**. This wraps the rootless rest-server container in a hardware-isolated Firecracker MicroVM. To adhere to Firecracker's minimal device model, storage is provided as a raw block image file rather than a shared directory.
 
 #### 1. Modify the Podman Command
 
-Add the `--runtime=kata-runtime` flag to your rootless `podman run` invocation for the `rest-server` service:
+Add the `--runtime=kata-runtime` flag to your rootless `podman run` invocation for the `rest-server` service, include `--device /dev/kvm`, and bind-mount the raw image file:
 
 ```bash
 podman run -d \
@@ -11772,10 +11770,12 @@ podman run -d \
   --security-opt=no-new-privileges \
   --memory=512m \
   --pids-limit=100 \
-  -v /var/lib/vault-rhel/repos/pc:/data:Z \
+  --device /dev/kvm \
+  -v /var/lib/vault-rhel/repos/pc.img:/data/pc.img:Z \
   -v /etc/vault-rhel/pc.htpasswd:/auth/htpasswd:ro,Z \
   rest-server:latest
 ```
+*(Note: Firecracker will consume `/data/pc.img` directly as its block storage via its drive configuration. The mechanism to pass this `path_on_host` config from Podman to `kata-runtime` requires local verification).*
 
 #### 2. Secure SELinux Policy Generation Workflow
 
@@ -11788,29 +11788,34 @@ Kata Containers requires access to virtualization devices (like `/dev/kvm` and `
 2. **Exercise the Full Workload:** Run a complete backup cycle, restart the container, and simulate a failure (e.g., kill the guest agent) to capture steady-state logs, not just cold-boot behavior.
 3. **Review the Denials:** Use `audit2allow -w -a` to read the plain-English explanation of why each denial occurred. Verify it only targets hardware/virtualization access.
 4. **The Critical Verification Step (True Domain & Host-Side MAC Test):**
-   *   **Identify True Process:** The process touching the repo on the host is likely `virtiofsd`, not `kata-shim`. Run `ps -eZ | grep -E 'virtiofsd|firecracker|kata-shim'` during a backup to find the true domain (`<virtiofsd_domain_t>`).
-   *   **Identify Repo Types:** Check the actual SELinux types of both repositories using `ls -Z /var/lib/vault-rhel/repos/pc` and `.../phone`. Notice they share the same base type but have different MCS categories.
-   *   **Query the Policy:** Run `sesearch --allow -s <virtiofsd_domain_t> -t <repo_type> -c file` to precisely see the granted permissions.
-   *   **Empirical Validation (Host-Side):** Do *not* test by trying to access the opposite repo from inside the Kata guest (that only tests Mount Namespaces via `ENOENT`). Instead, impersonate the daemon directly on the host to explicitly test the SELinux MAC layer:
+   *   **Identify True Process:** The process touching the repo image on the host is the `firecracker` binary itself. Run `ps -eZ | grep -E 'firecracker|kata-shim'` during a backup to find the true domain (`<firecracker_domain_t>`).
+   *   **Identify Repo Types:** Check the actual SELinux types of both repository images using `ls -Z /var/lib/vault-rhel/repos/pc.img` and `.../phone.img`. Notice they share the same base type but have different MCS categories.
+   *   **Query the Policy:** Run `sesearch --allow -s <firecracker_domain_t> -t <repo_type> -c file` to precisely see the granted permissions.
+   *   **Empirical Validation (Host-Side):** Do *not* test by trying to access the opposite repo from inside the Kata guest (that only tests Mount Namespaces via `ENOENT`). Instead, impersonate the VMM directly on the host to explicitly test the SELinux MAC layer:
        ```bash
-       sudo runcon -t <virtiofsd_domain_t> -- cat /var/lib/vault-rhel/repos/phone/config
+       sudo runcon -t <firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/phone.img
        ```
        This **must** result in an `AVC Denial` (Permission Denied). If it succeeds, your policy is dangerously broad.
 5. **Load and Enforce:** Once verified, compile and load the policy module (`semodule -i`), then remove the permissive scope (`semanage permissive -d <kata_domain_t>`). Repeat this capture process after standard system updates (`dnf update`), not just major Kata releases.
 
-#### 3. Virtiofsd Sandbox Hardening (Zero Trust requirement)
+#### 3. Disk Usage Gate & Host-Level Enforcement
 
-In Kata Containers (especially with the modern Rust `virtiofsd`), you must enforce internal sandboxing for the daemon. Even though we rely on SELinux externally, a true **Zero Trust** posture requires defense-in-depth against `virtiofsd` vulnerabilities (such as symlink traversal).
-1. Check your Kata configuration (usually `/etc/kata-containers/configuration.toml` or similar).
-2. Ensure `virtio_fs_extra_args` includes `--sandbox=namespace` (or at least `--sandbox=chroot`). This traps the daemon in an isolated mount/pid namespace, preventing it from touching host paths outside the exported directory if compromised.
-3. **XATTR Restriction:** Consider disabling or severely restricting `xattr` passthrough in the `virtiofsd` arguments if your backup workflow does not strictly require host-to-guest extended attribute translation. This shrinks the syscall attack surface.
+Your existing rule to halt backups if host disk usage exceeds 85% functions identically with sparse `.img` files (use `df -h` to measure total partition usage). If the threshold is crossed:
+1. Do not start the `vault-rest-server-pc` and `vault-rest-server-phone` services.
+2. Apply `chattr +i /var/lib/vault-rhel/repos/pc.img` (and phone.img) to enforce physical read-only protection at the host filesystem level. Remove the immutable flag only when space is cleared and the services are safe to resume.
 
 #### 4. Host Filesystem Mount Restrictions (No-Exec, No-Dev)
 
-As an ultimate failsafe against a container-to-host `virtiofsd` breakout, the backend ZFS or Btrfs dataset hosting the backup repositories (`/var/lib/vault-rhel/repos/`) **must** be mounted with extreme restrictions on the host.
+As an ultimate failsafe against a container-to-host VMM breakout, the backend ZFS or Btrfs dataset hosting the backup images (`/var/lib/vault-rhel/repos/`) **must** be mounted with extreme restrictions on the host.
 1. Edit the host `/etc/fstab` (or your ZFS dataset properties).
 2. Apply the `noexec,nodev,nosuid` mount options to the repository dataset.
-*Result:* Even if an attacker achieves RCE, exploits `virtiofsd`, and manages to write a malicious binary or a fake device node to the host directory, the host Kernel will outright refuse to execute the binary or mount the device.
+*Result:* Even if an attacker achieves RCE, exploits `firecracker`, and manages to write a malicious binary or a fake device node to the host directory, the host Kernel will outright refuse to execute the binary or mount the device.
+
+> [!IMPORTANT]
+> **Open Items for Local Verification (Before Implementation)**
+> - **Podman+Kata Drive Config Integration:** Determine the exact mechanism to pass Firecracker's drive configuration (JSON config/annotation pointing to the mounted `.img`) through Podman to `kata-runtime`.
+> - **SELinux Type Names:** Confirm exact SELinux domain names via `ps -eZ` on this host before writing policy generation steps into any operational runbook.
+> - **Sparse File Growth:** Confirm sparse raw file growth (`truncate`) behavior on your chosen host filesystem (ext4 assumed).
 
 ### H4.2 Complete the backend systemd confinement
 
