@@ -3618,27 +3618,70 @@ sudo firewall-cmd --permanent --zone=drop \
 
 sudo firewall-cmd --reload
 ```
-##### Two-Device SSH Protection (TOTP PAM) & 1-Strike Lockdown
+##### Two-Device SSH Protection (Offline CA) & 1-Strike Lockdown
 To protect against an attacker who compromises your PC and steals your SSH private key, you must implement a 3-layer security model combined with a Zero-Tolerance lockdown policy:
 
 1. **Network Layer:** IP Whitelisting (configured above).
 2. **File Layer:** An Ed25519 SSH Key protected by a strong Passphrase.
-3. **Device Layer (TOTP):** A Time-Based One-Time Password (TOTP) module on the RHEL server.
+3. **Device Layer (Offline CA):** Air-gapped SSH Certificate Authority (QR Code) on the Phone.
 4. **Zero-Tolerance Lockdown:** A 1-strike ban using `pam_faillock` and `pam_exec`.
 
-**Step 1: TOTP Setup**
-Install a TOTP PAM module (e.g., `google-authenticator` or your preferred alternative) and configure it with an authenticator app on your phone. Then, configure `/etc/ssh/sshd_config` to require both the SSH key and the TOTP code:
+**Step 1: Symmetrical Offline CA Setup (Cross-Authorization)**
+In this architecture, TOTP is completely removed. To achieve true Zero-Trust, we implement a **Symmetrical Cross-Authentication** model between endpoints:
+- `vault-pc` uses the Phone as its CA.
+- `vault-phone` uses the PC as its CA.
+This ensures neither device can unilaterally access its corresponding infrastructure without the physical, air-gapped authorization of the other.
+
+Copy the opposite device's CA public key to `/etc/ssh/ca.pub` and configure `/etc/ssh/sshd_config`:
 ```text
 PasswordAuthentication no
-AuthenticationMethods publickey,keyboard-interactive
+TrustedUserCAKeys /etc/ssh/ca.pub
 ```
 
-> **Alternative: Multi-Party Authentication via Tailscale SSH Approvals**
-> If you require strict multi-device cryptographic authorization (e.g., initiating the SSH connection from the PC but requiring a cryptographic approval signature from the Phone's Tailscale app) rather than using a TOTP code, you must abandon native OpenSSH and enable **Tailscale SSH**.
-> This requires rewriting your Tailscale ACLs to use `action: check` (Tailnet Lock / SSH Approvals), allowing the Phone to cryptographically sign and approve the PC's incoming SSH session. This approach provides true multi-party SSH authorization but introduces a strict dependency on the Tailscale control plane for server administration.
+**Step 1.5: CA Policy Hardening & Static Paper QR**
+To completely eliminate the risk of a compromised endpoint injecting a malicious QR payload into the CA camera or manipulating the key request:
+1. **Paper QR:** Do not scan the public key from the computer screen. Print the static `id_ed25519.pub` as a QR code on a physical piece of paper. The CA device must only scan this trusted paper.
+2. **Policy Hardening:** The CA must strictly enforce limits during signing:
+   ```bash
+   ssh-keygen -s ca_key -V +1m -n backup-user scanned_public_key.pub
+   ```
+
+**Threat Modeling: Kill & Replace and Agent Hijacking**
+*If an attacker kills your SSH process (`kill -9`) the moment the certificate is generated:*
+* **Protection:** The attacker cannot use the stolen certificate without also possessing the passphrase for the local `id_ed25519` private key.
+* **Agent Vulnerability:** If `ssh-agent` is used, the attacker can hijack the `SSH_AUTH_SOCK` in the background.
+* **Mitigation:** Never use `ssh-agent` for the Vault key. If required, use `ssh-add -c` to force physical confirmation (askpass) for every signature. Always enforce `ControlMaster no` in `~/.ssh/config` to block connection multiplexing.
+
+**Step 2: VPS Console Lockdown**
+By default, Cloud Provider management consoles (e.g., OCI Cloud Shell, AWS Session Manager) can bypass OS-level SSH protections. To ensure the Offline CA is the *only* path into the VPS, you must mask the TTY services so the web console becomes entirely deaf and unresponsive.
+
+Run the following commands on the VPS:
+```bash
+sudo systemctl mask getty@tty1.service
+sudo systemctl mask serial-getty@ttyS0.service
+```
+*(Note: Depending on your cloud provider, you may also need to mask `ttyS1` or `hvc0`)*
+
+> [!WARNING]
+> **Acımasız Kilitlenme (Zero-Tolerance):** With the web console disabled and TOTP removed, losing your Phone (CA) means losing all access to the VPS permanently. There is no cloud-console backdoor.
 
 
-**Step 2: 1-Strike Lockdown (pam_faillock)**
+**Step 2.5: Race Condition Prevention (maxlogins)**
+To mathematically eliminate the window where a stolen 1-minute certificate could be reused concurrently by an attacker, limit the VPS to a single active session per user.
+Create `/etc/security/limits.d/99-vault.conf`:
+```text
+backup-user hard maxlogins 1
+```
+*(If you are currently logged in, PAM will instantly reject any secondary connection attempts, rendering the stolen certificate useless).*
+
+**Step 2.6: Zero-Privilege Post-Login (Sudo Whitelist & NOEXEC)**
+Even if an attacker bypasses all protections and gains a shell, they must be prevented from altering system configurations or downloading malware.
+Revoke all general `sudo` privileges for the backup-user and enforce a strict whitelist in `/etc/sudoers.d/vault-admin`:
+```text
+backup-user ALL=(root) NOEXEC: /usr/bin/dnf update, /usr/bin/dnf upgrade, /usr/bin/journalctl *, /usr/bin/systemctl status *
+```
+*Note: The `NOEXEC` tag is critical. It prevents commands like `journalctl` or `less` from spawning root shells (Shell Escapes). Modifying configs (`nano`, `vi`) and downloading tools (`curl`, `wget`) are strictly forbidden.*
+**Step 3: 1-Strike Lockdown (pam_faillock)**
 Configure RHEL's authselect/PAM stack (`/etc/security/faillock.conf`) with the following strict parameters:
 ```text
 deny = 1
@@ -3646,7 +3689,7 @@ unlock_time = 0
 ```
 *Note: `unlock_time = 0` means the account will never automatically unlock upon a single failure.*
 
-**Step 3: Notification Hook & Targeted IP Ban (pam_exec)**
+**Step 4: Notification Hook & Targeted IP Ban (pam_exec)**
 Create a bash script that triggers a webhook (e.g., to a generic notification service URL) and hook it into your PAM stack using `pam_exec.so`. Ensure this script executes whenever an auth failure occurs.
 
 To aggressively prevent further network scanning or lateral movement *without* dropping the entire network interface (which would lock out your recovery tools), implement a **Targeted IP Ban**:
@@ -3656,12 +3699,12 @@ nft add rule inet filter input ip saddr $PAM_RHOST drop comment "targeted_ban"
 ```
 This isolates the specific attacker instantly while leaving the rest of the Tailnet intact for your own recovery devices.
 
-**Step 4: Advanced Cross-Device SSH Unlock (Recovery Key)**
+**Step 5: Advanced Cross-Device SSH Unlock (Recovery Key)**
 To recover from a `pam_faillock` lockout without relying on a Cloud Provider's Web Console, we implement a structurally isolated **Cross-Device Unlock** architecture following Separation of Privileges:
 
 1. **Dedicated User:** Create an unprivileged user strictly for recovery:
    `useradd -r -s /bin/bash -m -d /var/lib/recovery recovery`
-2. **Centralized Restriction (sshd_config):** Use a `Match` block to structurally separate the recovery channel, exempt it from TOTP, and enforce a static dispatcher script (preventing `authorized_keys` bypasses):
+2. **Centralized Restriction (sshd_config):** Use a `Match` block to structurally separate the recovery channel, exempt it from the CA requirement, and enforce a static dispatcher script (preventing `authorized_keys` bypasses):
    ```text
    Match User recovery
        AuthorizedKeysFile /etc/ssh/recovery_authorized_keys
@@ -7344,6 +7387,14 @@ In this no-prune variant the repository passwords are absent, so RHEL root still
 not automatically gain decryption capability. Key absence is not an egress control; an
 attacker can still copy encrypted repository bytes.
 
+This category is defined independently of the transfer pipeline's own hardening. With the
+Kata/Firecracker MicroVM boundary in place, reaching host-level compromise *through the
+pipeline itself* requires a VM escape as the dominant remaining step (Section H4.1.1). RHEL
+root compromise, as a category, is not assumed to arrive through that path — it covers
+administrative access (SSH to this host, `dnf update` supply chain, the session used to
+run `semodule`/`systemctl`) and physical access (Section 3), which remain independent of
+the pipeline's own attack surface no matter how hardened that surface becomes.
+
 ---
 
 ## 2. Reference Hardware, OS, and Preflight Worksheet
@@ -7354,6 +7405,7 @@ Before typing commands, record:
 
 ```text
 RHEL host name:                  vault-rhel
+RHEL admin access:               Physical/Out-of-band only (sshd disabled)
 PC Tailscale tailnet ID/DNS:       <record from Section 24 worksheet>
 Phone Tailscale tailnet ID/DNS:    <record from Section 24 worksheet>
 PC RHEL Tailscale IP:              PC_RHEL_TS_IP
@@ -9022,8 +9074,8 @@ Create `/usr/local/sbin/vault-rhel-capacity-guard`:
 #!/usr/bin/env bash
 set -euo pipefail
 
-PC_PATH='/var/lib/vault-rhel/repos/pc'
-PHONE_PATH='/var/lib/vault-rhel/repos/phone'
+PC_PATH='/var/lib/vault-rhel/repos/pc.img'
+PHONE_PATH='/var/lib/vault-rhel/repos/phone.img'
 GLOBAL_PATH='/var/lib/vault-rhel'
 STATE='/var/lib/vault-rhel/capacity'
 mkdir -p "$STATE"
@@ -9124,8 +9176,10 @@ To prevent system instability and ensure a hard limit on capacity, a strict pre-
 **Boot-Time Verification Workflow:**
 1. **Startup Check:** The disk usage ratio is evaluated every time the system boots, strictly *before* the backup services (rest-server Podman capsules and Caddy systemd services) are allowed to start.
 2. **Threshold Exceeded (>=85%):** If the calculated total disk usage is 85% or higher:
-   - The Caddy (systemd) and rest-server (Podman) services will **not** be started.
-   - The backup destination folders (`/var/lib/vault-rhel/repos/`) will be explicitly made **read-only**, completely preventing any future backups.
+   - The Caddy (systemd) and rest-server (Podman/Kata) services will **not** be started.
+   - No further action is required to enforce read-only behavior: a service that is never
+     started has no write path. See H4.1.1 §3 for the current (`.img`-file based) storage
+     model and the `chattr +i` host-level protection applied independently as defense-in-depth.
 3. **Mid-Transfer Tolerance:** Because this guard operates exclusively during the device startup sequence, if the total disk usage is 84% before a backup starts and grows to 90% during the transfer, that specific ongoing transfer will not be interrupted. The lock-down changes will take permanent effect the next day when the RHEL server is booted again and the boot-time check detects the >=85% state.
 
 **Client Experience:**
@@ -11898,19 +11952,28 @@ podman run -d \
 ```
 *(Note: `--network=host` is safe here because the container is already trapped inside the isolated Linux network namespace built in step 12. Alternatively, map only the required port).*
 
-> **Virtiofsd Attack Surface Reduction (The `:ro` Benefit):**
-> Notice the `:ro` (read-only) flag on Caddy's configuration and certificate volume mounts. This is a massive security advantage. The majority of `virtiofsd` vulnerabilities require the guest to write data (e.g., crafting malicious symlinks). By forcing the mounts to be read-only, we neutralize this entire class of exploits for the Caddy MicroVM. 
-> *Why not do this for rest-server?* The `rest-server` MicroVM inherently requires write access to the host repository (`/data:Z` without `:ro`) to save incoming backups, so it cannot utilize this specific mitigation. This highlights why isolating Caddy and rest-server into two *separate* MicroVMs with separate `virtiofsd` instances is critical.
+> **Config/Certificate Delivery — Open Item:**
+> Firecracker has no shared-directory mechanism (no `virtio-fs`), so Caddy's config and
+> certificates cannot be delivered via a `:ro` bind mount the way they were under a
+> directory-sharing hypervisor. Two candidate mechanisms need local verification before
+> this is settled: (a) a second small, read-only raw block image containing the config/certs,
+> mounted the same way the repository image is; (b) Kata's native small-file config-injection
+> path at VM start, if supported for this Kata/Firecracker version. Do not treat either as
+> confirmed until tested.
 
 #### 2. Apply the Secure SELinux Policy Generation Workflow
 
 Kata will need virtualization device access to launch the Caddy MicroVM. You must perform the exact same **Secure SELinux Policy Generation Workflow** defined in `H4.1.1 (Step 2)` for the Caddy container.
 
-Crucially, when performing the **Host-Side MAC Test (Step 4)** for Caddy, you must verify that Caddy's `virtiofsd` process is completely blocked from reading the backend data repository:
+Crucially, when performing the **Host-Side MAC Test (Step 4)** for Caddy, identify the true
+host-side process the same way as for rest-server (`ps -eZ`, expected to be the `firecracker`
+process for Caddy's own VM instance — Caddy's guest has no legitimate reason to touch the
+repository at all), then verify it is blocked from reading either repository image:
 ```bash
-sudo runcon -t <caddy_virtiofsd_domain_t> -- cat /var/lib/vault-rhel/repos/pc/config
+sudo runcon -t <caddy_firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/pc.img
+sudo runcon -t <caddy_firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/phone.img
 ```
-This test **must** result in an `AVC Denial`. This proves that even if an attacker achieves RCE inside Caddy and breaks out of the container to the MicroVM kernel, SELinux on the host still physically prevents the reverse proxy from reading the backup data.
+Both **must** result in an `AVC Denial`.
 
 ### H4.4 Capacity guard
 

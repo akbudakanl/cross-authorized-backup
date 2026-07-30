@@ -16,6 +16,7 @@ The project is currently shelved pending personal audit and real deployment test
 *   `docs/canonical/Vault_Post_Install_Detection_and_Credential_Custody.md`: **FINALIZED (v1)** - The reference for the detection plane (AWS VaultAuditWatch) and credential hygiene. Includes Honeypot setup.
 *   `docs/extensions/Vault_Extension_Host_Level_Containment.md`: **PROPOSED** - Advanced hardening for SELinux, kernel monitoring (Falco), and hardware VM isolation.
 *   `docs/extensions/Vault_Extension_OOB_Notification_Routing.md`: **PROPOSED** - Cross-routed notification strategy (PC -> Phone, Phone -> PC) using E-mail and Telegram.
+*   `docs/extensions/Vault_Extension_Offline_CA_and_Console_Lockdown.md`: **PROPOSED** - Offline SSH CA (QR Code) authentication and PBKDF2 Break-Glass Console Lockdown.
 
 ## Current State
 
