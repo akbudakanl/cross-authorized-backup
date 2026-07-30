@@ -561,7 +561,7 @@ or `ss` checks before opening the opposite receiver.
 PAR2 is **not** for S3 Deep Archive. It protects the locally available ciphertext pack
 files of `~/Vault_Mutual_Phone_Repo` and its external-HDD mirror.
 
-Install 8% parity for each pack that lacks parity:
+Install 5% parity for each pack that lacks parity:
 
 ```bash
 PHONE_REPO="$HOME/Vault_Mutual_Phone_Repo"
@@ -569,7 +569,7 @@ find "$PHONE_REPO/data" -type f -name '*.par2' -print0 | while IFS= read -r -d '
   [ -f "${p%.par2}" ] || rm -f -- "$p"
 done
 find "$PHONE_REPO/data" -type f ! -name '*.par2' -print0 | while IFS= read -r -d '' pack; do
-  [ -f "${pack}.par2" ] || par2create -r8 -n1 "${pack}.par2" "$pack"
+  [ -f "${pack}.par2" ] || par2create -r5 -n1 "${pack}.par2" "$pack"
 done
 ```
 
@@ -668,7 +668,7 @@ New asset:
   PC-hosted Phone ciphertext repository and Phone-hosted PC ciphertext repository.
 
 New maintenance controls:
-  weekly 1/4 source-side restic read check; PAR2 8% for PC/HDD-hosted Phone repo; HDD
+  weekly 1/4 source-side restic read check; PAR2 5% for PC/HDD-hosted Phone repo; HDD
   checksum mirror.
 ```
 

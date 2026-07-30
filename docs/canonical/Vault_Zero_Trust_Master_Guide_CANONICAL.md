@@ -829,6 +829,23 @@ RHEL is the preferred on-premises recovery source when reachable. S3 is the off-
 recovery source. Deep Archive restores may require the AWS retrieval workflow before
 restic can read cold objects; follow the S3 section's cold-storage warnings.
 
+### 5.1 Disaster Recovery & Corruption Handling (Self-Healing)
+
+If a corruption is found during a `restic check` on a local repository (such as the Mutual Backup Phone/PC repo or the hot RHEL repo) and you successfully perform a `par2 repair` on the corrupted pack file, you **must** run `restic check` again to cryptographically verify the repair. Do not declare recovery successful based on PAR2 alone.
+
+If PAR2 repair fails or is unavailable, and `restic check` continues to report corruption, rolling back to an older snapshot usually will not fix the issue because Restic's deduplication shares identical chunks across all snapshots. Instead, use Restic's self-healing capabilities or the 3-2-1 backup architecture to repair the repository:
+
+**Scenario A: The corrupted file still exists on the primary client device**
+1. Identify the files affected by the broken pack using `restic find --pack <pack-id>`.
+2. Delete the corrupted pack and rebuild the repository index: `restic rebuild-index`.
+3. Simply run a new backup: `restic backup <path>`. Restic will notice the missing chunks and automatically re-upload them from your healthy local files, perfectly repairing the repository for future snapshots.
+
+**Scenario B: The corrupted file is lost from the primary client device (3-2-1 Rule Rescue)**
+1. If the local repository is permanently corrupted and the file is also gone from your PC/Phone, do not panic. This is exactly why the architecture strictly enforces the 3-2-1 rule.
+2. Connect to your independent secondary backup destination (e.g., AWS S3 Deep Archive or the totally self-hosted External USB repository).
+3. Restore the missing file(s) from the healthy S3/USB repository to your primary client device.
+4. Once the file is safely back on your local device, run a new `restic backup` towards the primary RHEL repository. Restic will re-chunk the file and upload the missing blocks, healing the primary repository.
+
 ---
 
 ## Retention Mode — Keep-All-History / No-Prune
