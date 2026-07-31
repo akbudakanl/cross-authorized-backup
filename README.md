@@ -186,3 +186,9 @@ restic REST surface.
 container model) instead of raw systemd. Not required by the current threat model —
 see `Caddy_Hardening_Implementation_Plan.md` §3 for the full rationale, trigger
 conditions, and implementation outline if revisited.
+
+### Pre-Auth Gate / SPA (fwknop)
+
+The addition of a Single Packet Authorization (SPA) layer (e.g., `fwknop`) in front of the Caddy gate to prevent unauthenticated network reachability from hitting the L7 layer is a documented future consideration (see `Additional Files/vault-gate-l3-migration-proposal.md`).
+
+**Important Note:** The security trade-offs of this addition—specifically, exposing a C-based, memory-unsafe daemon (even if heavily sandboxed) to unauthenticated packets in order to protect the memory-safe Go TLS/HTTP stack—are currently unresolved. Unlike the other detailed hardening measures in this guide, the exact implementation, isolation strategy, and overall net-security benefit of adding this SPA layer remain entirely as a question mark and require further threat modeling before any deployment.
