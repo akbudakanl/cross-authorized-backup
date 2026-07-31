@@ -1,6 +1,9 @@
 # VAULT EXTENSION — MUTUAL ENCRYPTED PC↔PHONE BACKUP
 ================================================================================
 
+> [!WARNING]
+> **REJECTED:** This extension has been rejected for security reasons and its contents are not included in the Canonical master guide.
+
 ## 1. What this extension changes
 
 The canonical master is outbound-only: PC and Phone never run Vault receivers and never

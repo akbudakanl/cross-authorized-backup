@@ -1,5 +1,7 @@
 # Extension: Totally Self-Hosted 3-2-1 Backup Strategy
 
+**Status:** This is an alternative architecture for users who wish to entirely eliminate the AWS S3 (Cloud) dependency from the canonical guide while strictly preserving the 3-2-1 backup rule and Zero Trust boundaries.
+
 **Concept:** This extension provides an architecture for implementing the 3-2-1 backup rule entirely on-premises, without relying on any cloud providers (like AWS S3). It uses a permanently attached external USB hard drive on the RHEL backup server as the 3rd destination, completely isolated from the MicroVMs to maintain the strict Zero Trust threat model.
 
 ## Core Architectural Principle: The Opaque Carrier
@@ -41,4 +43,3 @@ To efficiently sync a 50GB+ `.img` file without copying the entire file every da
 - **Delta Efficiency:** Restic perfectly handles the block-level changes inside the `.img` files, only copying the new megabytes of data instead of copying the whole 50GB file.
 - **Blast Radius Containment:** Even if the MicroVM is fully compromised and the `.img` is corrupted, the RHEL Host safely backs up the corrupted blob to the USB without ever knowing it's corrupted. The RHEL Host remains pristine.
 
-**Status:** This is an alternative architecture for users who wish to entirely eliminate the AWS S3 (Cloud) dependency from the canonical guide while strictly preserving the 3-2-1 backup rule and Zero Trust boundaries.

@@ -2,52 +2,52 @@
 
 **Classification:** ARCHITECTURE EXTENSION / OPTIONAL HARDENING
 
-Bu eklenti dosyası, Canonical yapıya entegre edilmiş olan Offline CA ve Console Lockdown mimarisinin geçmişini ve halen opsiyonel olan fiziksel kağıt (Break-Glass) kurtarma konseptini açıklamaktadır.
+This extension file explains the history of the Offline CA and Console Lockdown architecture, which has been integrated into the Canonical structure, as well as the optional physical paper (Break-Glass) recovery concept.
 
-## Söz konusu uygulama öncesi güncel olmayan versiyon
+## Outdated version before this implementation
 
-Standart mimarinin eski versiyonunda, bir VPS sunucusunun SSH erişimi Ed25519 anahtarı ve TOTP (Time-Based One-Time Password) ile korunmaktaydı. Bu yapıda, `/etc/ssh/sshd_config` dosyası `AuthenticationMethods publickey,keyboard-interactive` olarak ayarlanır ve `google-authenticator` gibi bir PAM modülü kullanılırdı.
+In the older version of the standard architecture, SSH access to a VPS server was protected by an Ed25519 key and a TOTP (Time-Based One-Time Password). In this structure, the `/etc/ssh/sshd_config` file was set to `AuthenticationMethods publickey,keyboard-interactive` and a PAM module like `google-authenticator` was used.
 
-Ancak TOTP (6 haneli şifre) matematiksel olarak 1.000.000'da 1 tahmin edilebilirliğe sahiptir. Ayrıca eski yapıda Bulut Sağlayıcıların yönetim konsolları (AWS Session Manager, OCI Cloud Shell) OS seviyesindeki SSH korumalarını bypass edebilme potansiyeli taşıdığı halde açık bırakılıyordu. Bu durum, "Sıfır Güven" (Zero-Trust) zincirinde zayıf halkalar oluşturuyordu.
+However, a TOTP (6-digit code) mathematically has a 1 in 1,000,000 predictability. Moreover, in the old architecture, the management consoles of Cloud Providers (AWS Session Manager, OCI Cloud Shell) were left open, even though they had the potential to bypass OS-level SSH protections. This created weak links in the "Zero Trust" chain.
 
-## Güncellenmiş versiyon
+## Updated version
 
-Mevcut Canonical (varsayılan) mimaride TOTP ve Bulut Sağlayıcı Web Konsolu bağımlılıkları tamamen ortadan kaldırılmıştır. Bu güncel sürümde erişim tamamen merkeziyetsiz, hava boşluklu (air-gapped) bir sertifika otoritesine (Telefon) devredilmiştir.
+In the current Canonical (default) architecture, TOTP and Cloud Provider Web Console dependencies have been completely eliminated. In this updated version, access is entirely delegated to a decentralized, air-gapped certificate authority (Phone).
 
-1. **İçeri Giriş Kapısı (SSH Offline CA):** Sadece Tailscale ağı içinden gelen, PC'nin SSH anahtarına sahip olan ve bu anahtarı bağlantı anında **Telefondaki (Offline/Air-Gapped) Sertifika Otoritesine (CA) QR Kod ile imzalatan** kişi içeri girebilir.
-    - Telefon kendi CA anahtarını üretir ve asla dışarı çıkarmaz. Sadece `ca.pub` VPS'e kopyalanır.
-    - `sshd_config` üzerinde `TrustedUserCAKeys /etc/ssh/ca.pub` kullanılarak sunucu TOTP sormayı bırakır ve sadece bu imzalı sertifikayı kabul eder.
-    - SSH isteği sırasında public key QR kod ile telefona okutulur, imzalanan sertifika yine QR kod ile PC'ye alınarak giriş yapılır.
+1. **The Entry Gate (SSH Offline CA):** Only someone coming from within the Tailscale network, possessing the PC's SSH key, and having this key **signed via QR Code by the Certificate Authority (CA) on the Phone (Offline/Air-Gapped)** at the time of connection can gain access.
+    - The phone generates its own CA key and never extracts it. Only `ca.pub` is copied to the VPS.
+    - By using `TrustedUserCAKeys /etc/ssh/ca.pub` in `sshd_config`, the server stops prompting for TOTP and only accepts this signed certificate.
+    - During an SSH request, the public key is scanned by the phone via a QR code, and the signed certificate is retrieved back to the PC via another QR code to log in.
 
-2. **Arka Kapı (Cloud Console Lockdown):** Bulut sağlayıcının sunduğu Admin Konsoluna (VNC/Serial TTY) girilse bile işletim sistemi hiçbir tuş vuruşuna yanıt vermez.
-    - `sudo systemctl mask getty@tty1.service` ve `serial-getty@ttyS0.service` komutlarıyla terminal ekranları sağırlaştırılmıştır.
+2. **The Backdoor (Cloud Console Lockdown):** Even if the Admin Console (VNC/Serial TTY) provided by the cloud provider is accessed, the operating system will not respond to any keystrokes.
+    - The terminal screens have been deafened using the `sudo systemctl mask getty@tty1.service` and `serial-getty@ttyS0.service` commands.
 
 > [!WARNING]
-> **Tam Veri Kaybı Riski (Acımasız Kilitlenme):** Bu güncel mimari, yöneticiyi (Admin) kendi sunucusuna karşı da acımasızca kilitler. OCI Web Konsolu kilitlendiği için, Telefon (CA cihazı) kırılırsa veya kaybolursa, kiraladığınız VPS'lere erişmek matematiksel ve fiziksel olarak **imkansızdır**. Verilerinizi kaybedersiniz.
+> **Total Data Loss Risk (Ruthless Lockdown):** This current architecture ruthlessly locks out the administrator (Admin) from their own server as well. Because the OCI Web Console is locked down, if the Phone (CA device) breaks or is lost, it is mathematically and physically **impossible** to access the rented VPSs. You will lose your data.
 
-## Opsiyonel geliştirme fikri
+## Optional enhancement idea
 
-Konsol sağırlaştırıldığı için SSH sisteminin (CA) çökmesi veya kaybedilmesi durumunda **opsiyonel** olarak aşağıdaki "Kağıtta Saklanan Admin Console Erişim Anahtarı (Break-Glass)" yapısı kurulabilir. Bu geliştirme Canonical dosyasına dahil edilmemiştir ve uygulanması tamamen isteğe bağlıdır.
+Because the console is deafened, in the event of an SSH system (CA) crash or loss, the following "Paper-Stored Admin Console Access Key (Break-Glass)" structure can be **optionally** established. This enhancement is not included in the Canonical file, and its implementation is entirely voluntary.
 
-### Offline Break-Glass (Kağıttaki Acil Durum Şifresi)
+### Offline Break-Glass (Emergency Password on Paper)
 
-Sistem kilitlendiğinde tek kurtuluş yolunuz bootloader (GRUB) üzerinden `single-user mode`'a düşerek konsol erişimini geri kazanmaktır.
+When the system is locked down, your only way out is to drop into `single-user mode` via the bootloader (GRUB) to regain console access.
 
-1. **PBKDF2 Şifresinin Üretilmesi (Fiziksel Kağıt):**
-   - Tamamen rastgele, 64-128 karakter uzunluğunda bir şifre üretilir.
-   - Bu şifre **asla** bir şifre yöneticisine kaydedilmez, doğrudan fiziksel bir kağıda/çelik plakaya yazılıp kasaya kaldırılır.
+1. **Generating the PBKDF2 Password (Physical Paper):**
+   - A completely random password of 64-128 characters in length is generated.
+   - This password is **never** saved in a password manager; it is written directly on a physical piece of paper/steel plate and locked in a safe.
 
-2. **GRUB Bootloader'ın Kilitlenmesi:**
-   - Üretilen şifrenin PBKDF2 özeti çıkarılır ve GRUB yapılandırmasına gömülür:
+2. **Locking the GRUB Bootloader:**
+   - The PBKDF2 hash of the generated password is extracted and embedded into the GRUB configuration:
      ```bash
      grub2-setpassword
-     # (Kağıttaki şifre girilir, sistem hash'ini alır ve kaydeder)
+     # (The password on the paper is entered, the system hashes and saves it)
      ```
 
-**Acil bir durum olursa:**
-1. Bulut paneline girilir.
-2. Sunucu yeniden başlatılır (Reboot).
-3. Açılış (Boot) ekranındayken acil durum kağıdı alınır.
-4. GRUB ekranında "E" tuşuna basılıp kağıttaki şifre girilir ve sistem `single-user mode` (veya `init=/bin/bash`) olarak başlatılarak konsol erişimi geri kazanılır.
+**If an emergency occurs:**
+1. Log into the cloud panel.
+2. Reboot the server.
+3. While on the Boot screen, retrieve the emergency paper.
+4. Press the "E" key on the GRUB screen, enter the password from the paper, and boot the system into `single-user mode` (or `init=/bin/bash`) to regain console access.
 
-Bu sayede, bulut sağlayıcınız hacklense bile saldırganın o fiziksel kağıda sahip olmadan sunucunun işletim sistemine veya verilerine erişmesi engellenmiş olur.
+This way, even if your cloud provider is hacked, the attacker is prevented from accessing the server's operating system or data without possessing that physical piece of paper.

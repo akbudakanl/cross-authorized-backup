@@ -1,6 +1,9 @@
 # VAULT EXTENSION — CAPACITY-TRIGGERED PRUNE AND PERMANENT RETENTION MAINTENANCE
 ================================================================================
 
+> [!WARNING]
+> **REJECTED:** This extension has been rejected for security reasons and its contents are not included in the Canonical master guide.
+
 ## 1. Purpose
 
 The canonical master intentionally begins in no-prune/keep-all-history mode. This
@@ -900,29 +903,29 @@ GFS-LIKE WEEK / MONTH / YEAR WINDOWS + PRUNE
 PERMANENT RETENTION MODE
 ```
 
-Bu tasarım bilinçli bir **deferred complexity** kararıdır:
+This design is a deliberate **deferred complexity** decision:
 
-> Kapasite problemi gerçek olana kadar kapasiteyi çözmek için destructive repository yetkileri ekleme.
+> Do not add destructive repository privileges to solve capacity until the capacity problem becomes real.
 
-Bu nedenle %85'e kadar no-prune kullanmak “maintenance unutuldu” anlamına gelmez. Sistem kapasite sınırını bir **mimari migration trigger** olarak kullanır.
+Therefore, using no-prune until 85% does not mean "maintenance is forgotten". The system utilizes the capacity limit as an **architectural migration trigger**.
 
-### Neden %85'ten sonra tekrar no-prune'a dönülmez?
+### Why not revert to no-prune after 85%?
 
-Retention migration bir kez yapılıp eski snapshot'lar `forget` ile kaldırıldıktan ve `prune` ile unreferenced pack verisi fiziksel olarak silindikten sonra keep-all-history geçmişi geri getirilemez.
+Once a retention migration is performed, old snapshots are removed with `forget`, and unreferenced pack data is physically deleted with `prune`, the keep-all-history past cannot be restored.
 
-Bu nedenle migration şu anlama gelir:
+Therefore, a migration means:
 
-> Disk baskısı artık teorik değil; repository'nin yaşam döngüsü kalıcı retention gerektiriyor.
+> Disk pressure is no longer theoretical; the lifecycle of the repository requires permanent retention.
 
-Migration sonrasında sistem no-prune ve prune arasında haftalık/aylık gidip gelmez. **Prune + retention kalıcı operasyon modu olur.**
+After migration, the system does not bounce back and forth weekly/monthly between no-prune and prune. **Prune + retention becomes the permanent mode of operation.**
 
-Bu belgedeki kalıcı GFS-benzeri hedef politika: **7d / 6 hafta / 6 ay / 4 yıl**.
+The permanent GFS-like target policy in this document is: **7d / 6 weeks / 6 months / 4 years**.
 
 ---
 
-## 10. Eski Count-Based GFS'yi Aynen Geri Getirme
+## 10. Reinstating the Old Count-Based GFS Exactly
 
-Eski prune rehberinde aşağıdakine benzer bir politika vardı:
+In the old prune guide, there was a policy similar to the following:
 
 ```bash
 --keep-daily 6 \
@@ -931,17 +934,17 @@ Eski prune rehberinde aşağıdakine benzer bir politika vardı:
 --keep-yearly 4
 ```
 
-Bu klasik count-based GFS yaklaşımı anlaşılırdır; fakat append-only threat modelinde aynen geri getirilmemelidir.
+This classic count-based GFS approach is understandable; however, it should not be brought back exactly as is within an append-only threat model.
 
-Bir backup client compromise olduğunda saldırgan yeni snapshot ekleyebilir. Restic snapshot timestamp'leri retention sınıflandırmasında kullanır. Saldırgan aynı hafta/ay içindeki meşru snapshot'tan biraz daha yeni sahte snapshot'lar eklerse `--keep-weekly N` gibi “her periyotta en yeni snapshot'ı tut” politikaları sonraki `forget` çalışmasında meşru snapshot'ların seçilmemesine neden olabilir.
+If a backup client compromise occurs, an attacker can append new snapshots. Restic uses snapshot timestamps for retention classification. If the attacker appends fake snapshots that are slightly newer than the legitimate snapshot within the same week/month, policies like `--keep-weekly N` ("keep the newest snapshot in each period") may cause the legitimate snapshots to not be selected during the subsequent `forget` operation.
 
-Bu Vault mimarisinde sender compromise threat model dahilindedir. Bu nedenle kalıcı retention dönüşü **duration-window GFS** kullanmalıdır.
+In this Vault architecture, a sender compromise is included in the threat model. Therefore, a transition to permanent retention must use **duration-window GFS**.
 
-### Önerilen GFS benzeri süre pencereleri
+### Recommended GFS-like duration windows
 
-Kalıcı retention moduna geçildiğinde varsayılan hedef **7 günlük / 6 haftalık / 6 aylık / 4 yıllık** katmanlı geçmiş olmalıdır. Restic duration sözdizimi hafta (`w`) birimini tanımadığı için 6 hafta, `--keep-within-weekly 42d` olarak ifade edilir.
+When transitioning to permanent retention mode, the default target should be a tiered history of **7 days / 6 weeks / 6 months / 4 years**. Since the restic duration syntax does not recognize weeks (`w`), 6 weeks is expressed as `--keep-within-weekly 42d`.
 
-Önce dry-run:
+First, a dry-run:
 
 ```bash
 restic forget \
@@ -952,7 +955,7 @@ restic forget \
     --dry-run
 ```
 
-Gerçek uygulama:
+Real execution:
 
 ```bash
 restic forget \
@@ -962,85 +965,85 @@ restic forget \
     --keep-within-yearly 4y
 ```
 
-Anlamı:
+Meaning:
 
-- son **7 gün** içindeki günlük recovery points;
-- son **6 hafta (42 gün)** içindeki haftalık recovery points;
-- son **6 ay** içindeki aylık recovery points;
-- son **4 yıl** içindeki yıllık recovery points.
+- daily recovery points within the last **7 days**;
+- weekly recovery points within the last **6 weeks (42 days)**;
+- monthly recovery points within the last **6 months**;
+- yearly recovery points within the last **4 years**.
 
-Bu hâlâ GFS felsefesidir, fakat count-based `--keep-daily/weekly/monthly/yearly N` seçimi yerine latest snapshot'a göre duration-window sınırları kullanır. Dört katman da varsayılan kalıcı migration politikasının parçasıdır; günlük katman artık isteğe bağlı değildir.
+This remains the GFS philosophy, but instead of count-based `--keep-daily/weekly/monthly/yearly N` selections, it uses duration-window bounds relative to the latest snapshot. All four tiers are part of the default permanent migration policy; the daily tier is no longer optional.
 
 ---
 
-## 11. %85 Hard Guard Sonrası Kalıcı Retention Migration Prosedürü
+## 11. Permanent Retention Migration Procedure After %85 Hard Guard
 
-Bu prosedür repository format migration değildir. Mevcut restic repository'leri aynen kalır. Değişen şey repository lifecycle ve maintenance trust modelidir.
+This procedure is not a repository format migration. The existing restic repositories remain exactly as they are. What changes is the repository lifecycle and the maintenance trust model.
 
 ### Phase 0 — Freeze
 
-Hard guard tetiklendiğinde:
+When the hard guard triggers:
 
 ```text
 PC backup        STOP
 Phone backup     STOP
-S3 backup        STOP, ilgili repository de retention'a geçirilecekse
+S3 backup        STOP, if the relevant repository is also transitioning to retention
 RHEL ingestion   STOP
 Cross-device push STOP
 ```
 
-Yeni snapshot üretme.
+Do not generate new snapshots.
 
-Coordinator / Caddy / append-only receiver katmanlarını sırf disk doldu diye bypass etme.
+Do not bypass the Coordinator / Caddy / append-only receiver layers just because the disk is full.
 
-### Phase 1 — Prune'lu referans mimariyi geri aç
+### Phase 1 — Reopen the reference architecture with Prune
 
-Arşivlenen referans belge:
+Archived reference document:
 
 ```text
 Vault_Zero_Trust_Master_Guide_PRUNE_CURRENT.md
 ```
 
-Bu belge eski mimarinin tam çalışma kopyasıdır; ancak **count-based GFS komutlarını aynen geri alma**. Script/lifecycle yapısını referans olarak kullan ve retention komutlarını bu roadmap'teki `--keep-within-*` politikasına değiştir.
+This document is an exact working copy of the old architecture; however, **do not bring back the count-based GFS commands as they were**. Use the script/lifecycle structure as a reference and change the retention commands to the `--keep-within-*` policy detailed in this roadmap.
 
-Kalıcı retention modunda secret model tekrar değişir:
+In permanent retention mode, the secret model changes once again:
 
 ```text
 PC own restic password
-    → PC'de kalır
+    → stays on PC
 
 Phone own restic password
-    → Phone'da kalır
+    → stays on Phone
 
-PC'nin host ettiği Phone repository maintenance'i
-    → Phone restic password gerekir
+PC hosted Phone repository maintenance
+    → Phone restic password required
 
-Phone'un host ettiği PC repository maintenance'i
-    → PC restic password gerekir
+Phone hosted PC repository maintenance
+    → PC restic password required
 
 RHEL local unattended maintenance
-    → PC ve Phone RHEL repository passwords RHEL'de gerekir
+    → PC and Phone RHEL repository passwords required on RHEL
 ```
 
-Yani no-prune modelinin “receiver repository key bilmez” garantisi retention migration ile bilinçli olarak zayıflar.
+Meaning that the "receiver knows no repository key" guarantee of the no-prune model is deliberately weakened with retention migration.
 
-Bu değişikliği rehberde trust-model değişikliği olarak açıkça kaydetmeden yalnız birkaç `prune` komutu ekleme.
+Do not add just a few `prune` commands without explicitly logging this change as a trust-model change in the guide.
 
-### Phase 2 — Repository bazında önce check
+### Phase 2 — Repository-level check first
 
-Her repository kendi anahtarına sahip maintenance client üzerinden:
+Via a maintenance client possessing its own key for each repository:
 
 ```bash
 restic check
 ```
 
-başarılı olmalıdır.
+must succeed.
 
-`check` başarısızsa `forget` veya `prune` çalıştırma. Önce repository sorununu araştır.
+If `check` fails, do not run `forget` or `prune`. Investigate the repository issue first.
 
 ### Phase 3 — Retention dry-run
 
-Her repository için:
+For each repository:
 
 ```bash
 restic forget \
@@ -1051,21 +1054,21 @@ restic forget \
     --dry-run
 ```
 
-Çıktıda özellikle kontrol et:
+Specifically check in the output:
 
 ```text
-- en yeni sağlam snapshot kalıyor mu?
-- her repository doğru host/path grubu altında mı?
-- beklenmeyen future timestamp var mı?
-- alışılmadık sayıda snapshot tek bir gün/haftada kümelenmiş mi?
-- backup scope doğru mu?
+- does the newest healthy snapshot remain?
+- is each repository under the correct host/path group?
+- is there any unexpected future timestamp?
+- are an unusual number of snapshots clustered in a single day/week?
+- is the backup scope correct?
 ```
 
-Anormal snapshot listesi görürsen migration'ı durdur. Dry-run'ın amacı yalnız syntax kontrolü değildir; compromised sender'ın ürettiği suspicious snapshot pattern'lerini fark etmek için insan kontrol noktasıdır.
+If you see an anomalous snapshot list, halt the migration. The purpose of the dry-run is not merely a syntax check; it is a human checkpoint to detect suspicious snapshot patterns generated by a compromised sender.
 
-### Phase 4 — Gerçek forget
+### Phase 4 — Real forget
 
-Dry-run onaylandıktan sonra aynı policy'yi `--dry-run` olmadan çalıştır:
+After the dry-run is approved, run the same policy without `--dry-run`:
 
 ```bash
 restic forget \
@@ -1075,44 +1078,44 @@ restic forget \
     --keep-within-yearly 4y
 ```
 
-Bu adım snapshot referanslarını kaldırır; henüz pack alanını fiziksel olarak geri kazanmış sayma.
+This step removes snapshot references; do not consider pack space to be physically reclaimed just yet.
 
-### Phase 5 — Düşük boş alan için kontrollü prune
+### Phase 5 — Controlled prune for low free space
 
-Hard guard'a kadar beklenmiş olduğu için ilk prune düşük boş alan koşulunda başlayabilir.
+Since this was deferred until the hard guard, the initial prune may start under low free space conditions.
 
-İlk migration prune'u:
+First migration prune:
 
 ```bash
 restic prune --max-repack-size 0
 ```
 
-kullanmalıdır.
+must be used.
 
-Bu seçenek repack için gereken ek scratch alanını azaltmak amacıyla kullanılır. İlk migration sırasında “en agresif compaction” hedeflenmez; önce güvenli biçimde tamamen unreferenced pack'lerden alan geri kazanılır.
+This option is used to reduce the additional scratch space required for repack. The goal during the initial migration is not the "most aggressive compaction"; instead, space is safely reclaimed first from completely unreferenced packs.
 
-İlk prune sonrası:
+After the first prune:
 
 ```bash
 restic check
 ```
 
-çalıştır.
+must be run.
 
-Yeterli alan geri kazanıldıysa sonraki planlı maintenance penceresinde normal prune politikası değerlendirilebilir.
+If sufficient space has been reclaimed, the normal prune policy can be evaluated during the next scheduled maintenance window.
 
 ### Phase 6 — Capacity validation
 
-RHEL tarafında:
+On the RHEL side:
 
 ```bash
 sudo du -sb /var/lib/vault-rhel/repos
 sudo df -P /var/lib/vault-rhel/repos
 ```
 
-kaydet.
+record the output.
 
-Migration öncesi/sonrası karşılaştır:
+Compare before/after migration:
 
 ```text
 BEFORE repo bytes
@@ -1121,17 +1124,17 @@ BEFORE filesystem %
 AFTER  filesystem %
 ```
 
-Retention migration yalnız komutun exit code'u ile “başarılı” sayılmaz. Gerçek amaç disk alanı geri kazanmaktır; fiziksel capacity sonucu kaydedilmelidir.
+A retention migration is not deemed "successful" solely by the command's exit code. The real goal is reclaiming disk space; the physical capacity result must be logged.
 
-### Phase 7 — Kalıcı maintenance schedule
+### Phase 7 — Permanent maintenance schedule
 
-Migration tamamlandıktan sonra eski “Saturday/catch-up” fikri geri getirilebilir:
+Once the migration is complete, the old "Saturday/catch-up" concept can be brought back:
 
 ```text
 Saturday:
-    backup phase tamamlandı
-    receiver append-only ingestion kapandı
-    maintenance credential erişimi açıldı
+    backup phase completed
+    receiver append-only ingestion closed
+    maintenance credential access opened
     check
     duration-window forget dry-run / policy sanity
     duration-window forget
@@ -1141,72 +1144,72 @@ Saturday:
     shutdown / session cleanup
 ```
 
-Önerilen kalıcı retention policy:
+Recommended permanent retention policy:
 
 ```bash
 --keep-within-daily 7d
---keep-within-weekly 42d   # 6 hafta; restic duration sözdiziminde `w` yoktur
+--keep-within-weekly 42d   # 6 weeks; restic duration syntax lacks `w`
 --keep-within-monthly 6m
 --keep-within-yearly 4y
 ```
 
-Retention ilk kez kapasite baskısı nedeniyle geri getirildiği için sonraki maintenance'i “yalnız disk tekrar %85'e gelince prune et” biçiminde çalıştırma. Bir kez retention moduna geçildikten sonra planlı maintenance düzenli sürmelidir; aksi halde tekrar aynı hard-guard acil durumuna dönersin.
+Because retention was initially reinstated due to capacity pressure, do not run subsequent maintenance in a "prune only when disk reaches 85% again" manner. Once retention mode is entered, scheduled maintenance must proceed regularly; otherwise, you will return to the exact same hard-guard emergency.
 
 ---
 
-## 12. “%85'e Kadar Beklemek” İçin Güvenlik ve Operasyon Kuralları
+## 12. Security and Operations Rules for "Waiting Until 85%"
 
-Bu strateji aşağıdaki kurallarla birlikte mantıklıdır:
+This strategy makes sense alongside the following rules:
 
-1. **%85 guard gerçek hard stop olmalı.** Kullanıcıya yalnız warning verip backup'a devam eden bir eşik değildir.
-2. **Capacity log silinmemeli.** `/var/log/vault-rhel-capacity.csv` büyüme eğiminin kanıtıdır.
-3. **No-prune döneminde remote repository passwords receiver'lara kopyalanmamalı.** “Nasıl olsa ileride prune edeceğim” gelecekteki trust modelini bugünden uygulamak için gerekçe değildir.
-4. **Prune ad hoc çalıştırılmamalı.** Migration prosedürü tamamlanmadan tek seferlik remote-password paste + prune yolu açma.
-5. **İlk migration dry-run insan tarafından incelenmeli.** Sender compromise threat model dahilindedir.
-6. **`--unsafe-recover-no-free-space` normal migration komutu değildir.** Bu seçenek repository'yi geçici olarak unusable bırakabilen son çare recovery yoludur; standart `%85` migration prosedürüne eklenmez.
+1. **The 85% guard must be a true hard stop.** It is not merely a threshold to give the user a warning while continuing backups.
+2. **The capacity log must not be deleted.** `/var/log/vault-rhel-capacity.csv` is proof of the growth slope.
+3. **During the no-prune period, remote repository passwords must not be copied to receivers.** "I'll prune eventually anyway" is not a justification for applying a future trust model today.
+4. **Prune must not be run ad hoc.** Do not open a path for a one-time remote-password paste + prune before completing the migration procedure.
+5. **The initial migration dry-run must be reviewed by a human.** Sender compromise is within the threat model.
+6. **`--unsafe-recover-no-free-space` is not a normal migration command.** This option is a last-resort recovery path that may leave the repository temporarily unusable; it is not added to the standard `85%` migration procedure.
 
-### Neden bu yaklaşım senin için mantıklı?
+### Why does this approach make sense for you?
 
-Mevcut doğrulanmış başlangıç yaklaşık **40 GiB toplam veri**.
+The current validated starting size is approximately **40 GiB total data**.
 
-Muhafazakâr repository bütçesi yaklaşık **171–176 GiB**.
+The conservative repository budget is approximately **171–176 GiB**.
 
-Dolayısıyla %85 hard guard öncesi yaklaşık:
-
-```text
-131–136 GiB net repository büyüme alanı
-```
-
-vardır.
-
-48 aylık basit ortalama sınırı:
+Thus, prior to the 85% hard guard, there is about:
 
 ```text
-131 GiB / 48 ≈ 2.73 GiB/ay
-136 GiB / 48 ≈ 2.83 GiB/ay
+131–136 GiB net repository growth space
 ```
 
-Bu nedenle gerçek fiziksel repository büyümen uzun süre 1 GiB/ay civarında kalırsa retention migration yıllarca gerekmeyebilir.
+available.
 
-2–2.5 GiB/ay bandında bile no-prune sistem gerçek kullanım testi üretmeye devam eder.
+The 48-month simple average limit is:
 
-%85'e ulaşılırsa artık şu bilinmektedir:
+```text
+131 GiB / 48 ≈ 2.73 GiB/month
+136 GiB / 48 ≈ 2.83 GiB/month
+```
 
-> Bu kullanıcı ve bu gerçek backup scope'u için keep-all-history, mevcut disk kapasitesinin yaşam döngüsüne uymuyor.
+Therefore, if your actual physical repository growth remains around 1 GiB/month for an extended period, retention migration may not be required for years.
 
-Bu noktada prune/GFS geri getirmek hipotetik optimizasyon değil, ölçülmüş operasyon ihtiyacıdır.
+Even within the 2–2.5 GiB/month band, the no-prune system continues to generate a true real-world usage test.
+
+If 85% is reached, it is then known that:
+
+> For this user and this actual backup scope, keep-all-history does not align with the lifecycle of the available disk capacity.
+
+At that point, reinstating prune/GFS is no longer a hypothetical optimization, but a measured operational necessity.
 
 ---
 
-## 13. Gelecekte AI ile Rehber Güncellerken Korunacak Tasarım Notu
+## 13. Design Note to Preserve When Updating Guide with AI in the Future
 
-Bu kararın bağlamını kaybetme:
+Do not lose the context of this decision:
 
-> No-prune başlangıç modu evrensel olarak “prune kötüdür” iddiasına dayanmaz. Kullanıcının yaklaşık 40 GiB başlangıç verisi, düşük büyük-mutable-data beklentisi ve dört yıllık kullanım ufku nedeniyle destructive retention yetkilerini ihtiyaç oluşana kadar erteleyen bir güvenlik/karmaşıklık tercihidir.
+> The no-prune initial mode is not universally based on the claim that "prune is bad". Given the user's approximately 40 GiB of initial data, low expectations for large mutable data, and a four-year usage horizon, this is a security/complexity preference that defers destructive retention privileges until the need arises.
 
-> `%85 hard ingestion guard`, yalnız disk koruması değil, trust-model migration trigger'ıdır. Trigger gerçekleşirse remote repository maintenance credentials yeniden devreye girebilir ve sistem permanent duration-window GFS + prune moduna geçebilir.
+> The `85% hard ingestion guard` is not just disk protection, it is a trust-model migration trigger. If the trigger occurs, remote repository maintenance credentials can be reinstated, and the system can transition into permanent duration-window GFS + prune mode.
 
-> Gelecekte kapasite, disk veya backup scope'u değişirse bu eşik ve retention pencereleri yeniden hesaplanmalıdır. Eski count-based `--keep-weekly N / --keep-monthly N / --keep-yearly N` komutlarını append-only threat modelinde bağlamı anlamadan aynen geri getirme.
+> In the future, if capacity, disk, or backup scope changes, this threshold and retention windows must be recalculated. Do not indiscriminately reinstate old count-based `--keep-weekly N / --keep-monthly N / --keep-yearly N` commands into an append-only threat model without understanding the context.
 
 ---
 

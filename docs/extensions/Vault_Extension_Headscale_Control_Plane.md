@@ -1,6 +1,12 @@
 # VAULT EXTENSION — REPLACE TAILSCALE CONTROL PLANES WITH HEADSCALE
 ================================================================================
 
+> [!WARNING]
+> **REJECTED:** This extension has been rejected due to security considerations and extra infrastructure requirements:
+> - **Lack of Tailnet Lock:** Headscale does not currently support the Tailnet Lock feature.
+> - **Security Trade-off:** While Headscale has the advantage of configuring without using `devices:core` (which is a security disadvantage in Tailscale), this advantage is not sufficient to justify the switch when compared to the critical absence of Tailnet Lock.
+> - **Additional VPS Requirement:** A Headscale server cannot be installed on the existing VPS infrastructure; utilizing it would require renting an additional VPS.
+
 ## 1. Purpose and security decision
 
 The canonical Vault guide uses **two independent Tailscale tailnets with Tailnet Lock**.
