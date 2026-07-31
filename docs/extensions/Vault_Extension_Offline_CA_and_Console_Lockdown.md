@@ -2,7 +2,7 @@
 
 **Classification:** ARCHITECTURE EXTENSION / OPTIONAL HARDENING
 
-This extension file explains the history of the Offline CA and Console Lockdown architecture, which has been integrated into the Canonical structure, as well as the optional physical paper (Break-Glass) recovery concept.
+This extension file explains the history of the Offline CA and Console Lockdown architecture, which has been integrated into the Core structure, as well as the optional physical paper (Break-Glass) recovery concept.
 
 ## Outdated version before this implementation
 
@@ -12,7 +12,7 @@ However, a TOTP (6-digit code) mathematically has a 1 in 1,000,000 predictabilit
 
 ## Updated version
 
-In the current Canonical (default) architecture, TOTP and Cloud Provider Web Console dependencies have been completely eliminated. In this updated version, access is entirely delegated to a decentralized, air-gapped certificate authority (Phone).
+In the current Core (default) architecture, TOTP and Cloud Provider Web Console dependencies have been completely eliminated. In this updated version, access is entirely delegated to a decentralized, air-gapped certificate authority (Phone).
 
 1. **The Entry Gate (SSH Offline CA):** Only someone coming from within the Tailscale network, possessing the PC's SSH key, and having this key **signed via QR Code by the Certificate Authority (CA) on the Phone (Offline/Air-Gapped)** at the time of connection can gain access.
     - The phone generates its own CA key and never extracts it. Only `ca.pub` is copied to the VPS.
@@ -27,7 +27,7 @@ In the current Canonical (default) architecture, TOTP and Cloud Provider Web Con
 
 ## Optional enhancement idea
 
-Because the console is deafened, in the event of an SSH system (CA) crash or loss, the following "Paper-Stored Admin Console Access Key (Break-Glass)" structure can be **optionally** established. This enhancement is not included in the Canonical file, and its implementation is entirely voluntary.
+Because the console is deafened, in the event of an SSH system (CA) crash or loss, the following "Paper-Stored Admin Console Access Key (Break-Glass)" structure can be **optionally** established. This enhancement is not included in the Core file, and its implementation is entirely voluntary.
 
 ### Offline Break-Glass (Emergency Password on Paper)
 

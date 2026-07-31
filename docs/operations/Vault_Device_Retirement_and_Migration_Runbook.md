@@ -1,6 +1,6 @@
 # VAULT — DEVICE RETIREMENT AND MIGRATION RUNBOOK
 
-**Document type:** canonical operational lifecycle runbook  
+**Document type:** core operational lifecycle runbook  
 **Architecture reference:** 2026-07-16 RHEL 9 BYOL/BYOI + Tailscale Tailnet Lock + outbound-only + no-prune + S3 successful-completion revocation + signed peer close + no-custom-SELinux-policy baseline
 **Applies to:** PC and Phone primary-device compartments  
 **Purpose:** replace, retire, rebuild, or permanently remove a primary device without weakening cross-authorization, Tailnet Lock, exact-device expiry, daily-slot, or repository-isolation invariants
@@ -40,7 +40,7 @@ Security objective:
 
 ---
 
-## 1. Canonical lifecycle principle
+## 1. Core lifecycle principle
 
 Use this order:
 
@@ -107,7 +107,7 @@ Treat all old-device operational secrets as exposed.
 
 ### CLASS D — Permanent retirement without replacement
 
-Removing one canonical primary breaks the two-endpoint cross-authorization assumption.
+Removing one core primary breaks the two-endpoint cross-authorization assumption.
 
 Classify as:
 
@@ -246,7 +246,7 @@ Preferred approach:
 ```text
 obtain required data through a reviewed recovery path
 copy only required non-executable source data
-review or scan it before placing it in the canonical Vault source tree
+review or scan it before placing it in the core Vault source tree
 rebuild scripts and configuration from the authoritative guide
 ```
 
@@ -256,7 +256,7 @@ Do not trust old Vault scripts, systemd user units, Termux widget code, AWS cach
 
 ## 7. Repository password handling
 
-The canonical RHEL baseline remains ciphertext-only and keyless.
+The core RHEL baseline remains ciphertext-only and keyless.
 
 For the affected repository:
 
@@ -355,7 +355,7 @@ Verify that the replacement is accepted and the trusted infrastructure signer se
 
 ## 11. Update exact-device expiry binding
 
-The canonical Tailscale expiry helper is bound to one exact expected primary NodeID per compartment.
+The core Tailscale expiry helper is bound to one exact expected primary NodeID per compartment.
 
 On the matching VPS:
 
@@ -433,14 +433,14 @@ primary cannot AssumeRole directly into backup role
 Recreate:
 
 ```text
-canonical source directory
+core source directory
 phase helper
 close-only peer S3 helper
 AWS issuance helper
 daily Vault workflow with exact-session S3 completion barrier
 systemd user unit on Fedora
 Termux workflow/widget on Android
-routine secret files with canonical permissions
+routine secret files with core permissions
 ```
 
 Use the authoritative Git architecture snapshot and current deployment-time revalidation decisions.
@@ -539,7 +539,7 @@ After the replacement passes the required tests:
 10. run one complete synthetic cross-authorized ceremony
 ```
 
-The canonical model has one current PC primary and one current Phone primary.
+The core model has one current PC primary and one current Phone primary.
 
 Multiple interchangeable primaries require a separate security review.
 
@@ -594,7 +594,7 @@ plaintext source         → exposed
 
 VPS Ed25519 signing key  → not normally stored on primary
 Tailscale expiry secret  → not normally stored on primary
-Tailnet Lock signer key  → primary should not be canonical signer
+Tailnet Lock signer key  → primary should not be core signer
 ```
 
 Rotate based on actual trust-boundary exposure.
@@ -622,7 +622,7 @@ restic snapshots
 restic check
 ```
 
-For S3 Deep Archive, preserve the canonical cold-storage procedure; do not perform routine full cold-data checks as if it were hot storage.
+For S3 Deep Archive, preserve the core cold-storage procedure; do not perform routine full cold-data checks as if it were hot storage.
 
 A fundamentally new logical source requires a security review before reusing the repository identity.
 
@@ -630,7 +630,7 @@ A fundamentally new logical source requires a security review before reusing the
 
 ## 19. RHEL implications
 
-Primary-device migration does not require changing the canonical RHEL trust model.
+Primary-device migration does not require changing the core RHEL trust model.
 
 RHEL remains:
 
@@ -661,7 +661,7 @@ merging PC and Phone containers
 
 The no-custom-SELinux-policy baseline continues to rely on standard RHEL/Podman SELinux policy, dedicated service identities, DAC separation, systemd confinement, rootless Podman, and explicit repository bind mounts.
 
-Rerun the canonical hardening and repository-isolation checks after migration.
+Rerun the core hardening and repository-isolation checks after migration.
 
 ---
 
@@ -701,7 +701,7 @@ Do not generate one during device migration.
 
 Primary migration is not signer migration.
 
-Canonical primaries are not required signing nodes.
+Core primaries are not required signing nodes.
 
 If the old primary appears as a trusted Tailnet Lock signer:
 
@@ -717,7 +717,7 @@ Use the current official Tailnet Lock key-removal/revocation procedure. Do not a
 
 ## 22. Permanent removal of one endpoint
 
-Permanently removing one endpoint without replacement breaks the canonical cross-authorization assumption.
+Permanently removing one endpoint without replacement breaks the core cross-authorization assumption.
 
 Do not solve this by:
 
@@ -766,7 +766,7 @@ TAILSCALE
 [ ] New exact NodeID recorded.
 [ ] Primary inbound remains disabled.
 [ ] Tailnet Lock admission completed.
-[ ] Primary is not a canonical signer.
+[ ] Primary is not a core signer.
 [ ] Old node expired/revoked/removed after cutover.
 
 EXACT EXPIRY
@@ -838,7 +838,7 @@ one endpoint permanently removed without replacement
 suspected compromise with unrotated phase token
     → NO-GO
 
-migration appears to require custom SELinux policy for canonical services
+migration appears to require custom SELinux policy for core services
     → STOP; investigate baseline drift/runtime incompatibility
 ```
 
@@ -877,7 +877,7 @@ Do not record raw secrets.
 
 A device replacement is complete only when:
 
-> the new primary can participate in the canonical cross-authorized ceremony, and the old primary can no longer exercise the identity bindings that made it a valid Vault participant.
+> the new primary can participate in the core cross-authorized ceremony, and the old primary can no longer exercise the identity bindings that made it a valid Vault participant.
 
 Successful file copying is not the migration acceptance criterion.
 

@@ -2,15 +2,15 @@
 ================================================================================
 
 > [!WARNING]
-> **REJECTED:** This extension has been rejected for security reasons and its contents are not included in the Canonical master guide.
+> **REJECTED:** This extension has been rejected for security reasons and its contents are not included in the Core master guide.
 
 ## 1. Purpose
 
-The canonical master intentionally begins in no-prune/keep-all-history mode. This
+The core master intentionally begins in no-prune/keep-all-history mode. This
 extension is the documented trust-model migration when real measured repository growth
 shows that the current RHEL storage lifecycle cannot sustain keep-all history.
 
-The recommended automatic trigger is the canonical RHEL **85% hard ingestion guard**.
+The recommended automatic trigger is the core RHEL **85% hard ingestion guard**.
 The operator may choose to migrate earlier after a documented capacity review, but must
 not install destructive maintenance merely because prune exists.
 
@@ -28,7 +28,7 @@ keys; it does not resurrect deleted history.
 
 ## 2. Baseline checks that remain before and after this extension
 
-The canonical source devices already perform a Saturday-anchored staged
+The core source devices already perform a Saturday-anchored staged
 `check --read-data-subset=n/4` cycle against their own hot RHEL repository: `1/4`,
 `2/4`, `3/4`, `4/4`, then repeat. If a Saturday is missed, the pending stage runs on
 the first later successful RHEL transfer; the stage number advances only after a
@@ -71,7 +71,7 @@ Do not hide this choice in a shell script.
 
 ## 4. Activation decision
 
-Use the canonical capacity log and `data_added_packed` history. At 70% review the
+Use the core capacity log and `data_added_packed` history. At 70% review the
 90-day growth slope. At 80% begin storage/retention preparation. At 85% stop ingestion.
 
 For the documented approximately 237 GiB filesystem and 25–30 GiB OS/runtime reserve,
@@ -83,7 +83,7 @@ measurements.
 
 ### 4.1 Enable this extension from day zero
 
-The canonical recommendation is **not** to do this for the documented approximately
+The core recommendation is **not** to do this for the documented approximately
 40 GiB workload. Day-zero prune deliberately accepts a decryption-capable RHEL and
 destructive maintenance before measured capacity pressure proves that the extra trust
 is necessary.
@@ -92,7 +92,7 @@ If the operator nevertheless selects permanent retention from the first installa
 
 1. apply the threat-model delta in Section 12 **before** copying either repository
    password to RHEL;
-2. finish the canonical RHEL repository initialization and one successful source-owned
+2. finish the core RHEL repository initialization and one successful source-owned
    backup for each repository;
 3. install the root-only maintenance credentials in Section 6;
 4. skip the emergency `%85` freeze narrative because there is no full-disk incident yet;
@@ -107,12 +107,12 @@ the normal scheduled maintenance path after the human-reviewed retention policy 
 been verified.
 
 Once day-zero retention is selected and destructive maintenance begins, treat the system
-as permanently in the prune/retention trust model. Do not describe it as the canonical
+as permanently in the prune/retention trust model. Do not describe it as the core
 keyless RHEL baseline.
 
 ### 4.2 Add this extension later
 
-This is the recommended lifecycle for the canonical guide:
+This is the recommended lifecycle for the core guide:
 
 ```text
 no-prune baseline
@@ -428,7 +428,7 @@ script's week marker prevents duplicate same-week destructive maintenance.
 
 ## 9. Integrate the 85% guard after migration
 
-After enough space is reclaimed, re-enable canonical backend gating. Keep the 70/80/85
+After enough space is reclaimed, re-enable core backend gating. Keep the 70/80/85
 monitoring. In permanent retention mode, 85% remains a hard stop; it now means regular
 maintenance or the chosen retention policy is no longer sufficient and storage/scope
 must be reviewed.
@@ -437,7 +437,7 @@ Do not disable the guard because prune exists.
 
 ## 10. PAR2 and the monthly staged check
 
-The canonical outbound-only baseline has no local PC↔Phone ciphertext repository, so
+The core outbound-only baseline has no local PC↔Phone ciphertext repository, so
 there is no PAR2 target on a primary device. The RHEL hot repositories continue to be
 verified by the source devices' weekly `1/4` checks, producing an approximately monthly
 full read cycle.
@@ -465,7 +465,7 @@ This rollback is **forward-looking only**. Deleted history stays deleted.
 4. Verify no password copy exists in environment files, systemd credentials, shell
    history, backups, or root scripts.
 5. Remove or archive the maintenance script/unit/timer.
-6. Re-run canonical keyless-RHEL verification.
+6. Re-run core keyless-RHEL verification.
 7. Continue new backups in no-prune mode from the current retained repository state.
 8. Update the threat model: RHEL is no longer decryption-capable after key removal, but
    historical snapshot deletion from the prune period is irreversible.
@@ -1225,13 +1225,13 @@ Do not lose the context of this decision:
 
 ## HARDENING COMPATIBILITY DELTA
 
-This extension is subordinate to the canonical master guide's
+This extension is subordinate to the core master guide's
 `PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
 
 Rules:
 
 ```text
-do not broaden Fedora's canonical single-source backup binding
+do not broaden Fedora's core single-source backup binding
 do not replace rootless Podman with rootful/privileged Podman
 do not disable SELinux labeling to fix an extension error
 do not apply a generic SystemCallFilter to network/control-plane services without tests
@@ -1277,7 +1277,7 @@ repositories; this extension operates on the local hot RHEL repository paths.
 The two rootless rest-server containers must remain unable to read
 `/etc/vault-rhel-maintenance`.
 
-## CANONICAL RHEL 9 PLATFORM NOTE
+## CORE RHEL 9 PLATFORM NOTE
 
 The capacity/prune extension changes the trust role of the **backup RHEL host** by adding
 decryption-capable maintenance credentials. It does not change `vault-pc` or

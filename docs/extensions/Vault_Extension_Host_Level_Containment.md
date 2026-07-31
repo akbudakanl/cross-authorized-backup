@@ -2,12 +2,12 @@
 
 **Classification:** ADVANCED HARDENING / RESIDUAL RISK MANAGEMENT
 > [!NOTE]
-> **Status: INTEGRATED INTO CANONICAL MASTER**
-> This extension has been fully integrated into the canonical master guide. The containment architecture now natively utilizes **Firecracker-based MicroVMs** and **block disks**, providing a robust hardware-level isolation boundary.
+> **Status: INTEGRATED INTO CORE MASTER**
+> This extension has been fully integrated into the core master guide. The containment architecture now natively utilizes **Firecracker-based MicroVMs** and **block disks**, providing a robust hardware-level isolation boundary.
 
 ## 1. Overview and Residual Risk
 
-The canonical Vault architecture uses strict systemd and rootless Podman sandboxing (`PrivateUsers`, `seccomp`, read-only rootfs, empty capabilities). Most of the basic and intermediate containment features are already active in the mainline configuration.
+The core Vault architecture uses strict systemd and rootless Podman sandboxing (`PrivateUsers`, `seccomp`, read-only rootfs, empty capabilities). Most of the basic and intermediate containment features are already active in the mainline configuration.
 
 However, because both the PC and Phone containers/namespaces share the same Linux kernel, a sophisticated attacker who achieves Remote Code Execution (RCE) in a service and subsequently executes a Container Escape (e.g., via a zero-day kernel exploit) could potentially cross the namespace boundary.
 

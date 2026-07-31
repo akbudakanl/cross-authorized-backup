@@ -9,7 +9,7 @@
 
 ## 1. Purpose and security decision
 
-The canonical Vault guide uses **two independent Tailscale tailnets with Tailnet Lock**.
+The core Vault guide uses **two independent Tailscale tailnets with Tailnet Lock**.
 This extension replaces those managed coordination planes with **two independent
 Headscale control planes**, one on `vault-pc` and one on `vault-phone`.
 
@@ -38,12 +38,12 @@ HEADSCALE EXTENSION
 
 The Headscale model is architecturally elegant for **session revocation and least
 privilege**, but weaker against a **control-plane-only membership compromise**. The
-canonical cross-VPS Ed25519 authorization for AWS and RHEL remains mandatory because
+core cross-VPS Ed25519 authorization for AWS and RHEL remains mandatory because
 it is independent from either control plane.
 
 ### What does not change
 
-Do not modify these canonical invariants:
+Do not modify these core invariants:
 
 ```text
 2 VPS total: vault-pc + vault-phone
@@ -139,7 +139,7 @@ address is also the outbound address:
 curl -4 https://checkip.amazonaws.com
 ```
 
-Record the measured address in the canonical AWS `aws:SourceIp` policy for the matching
+Record the measured address in the core AWS `aws:SourceIp` policy for the matching
 backup role.
 
 ---
@@ -148,11 +148,11 @@ backup role.
 
 ### 3.1 Select Headscale from day zero
 
-If this extension is chosen before the canonical Tailscale baseline is installed, treat
+If this extension is chosen before the core Tailscale baseline is installed, treat
 this document as a replacement for the master guide's Tailscale control-plane, Tailnet
 Lock, managed-control-plane enrollment, and Tailscale API expiry-helper steps.
 
-Keep every non-control-plane canonical component unchanged. In particular, still build
+Keep every non-control-plane core component unchanged. In particular, still build
 the two VPS signing keys, cross-VPS ceremony, Lambda daily gates, separate roles/buckets,
 fixed egress proxies, AWS-side snapshot-plus-later-lock-removal completion revokers,
 shared read-only exact-session status Lambda, backup-role permissions boundaries,
@@ -166,16 +166,16 @@ For a day-zero Headscale installation:
 3. enroll exactly the three expected nodes per compartment in Sections 11–12;
 4. install the explicit-default-deny policies in Section 13;
 5. install local exact-node expiry in Section 14;
-6. use the canonical/public DERP-map transport baseline; do not add Peer Relay unless
+6. use the core/public DERP-map transport baseline; do not add Peer Relay unless
    its separate extension decision test later justifies it;
 7. complete every Section 16 acceptance test before initializing a Vault repository.
 
 Do not first create one shared Headscale instance and plan to split it later. Two
 independent control planes are a day-zero invariant for this extension.
 
-### 3.2 Migrate an existing canonical Tailscale installation later
+### 3.2 Migrate an existing core Tailscale installation later
 
-When adding this extension to a running canonical deployment, use the change window and
+When adding this extension to a running core deployment, use the change window and
 migration sequence below. Keep the existing Tailscale tailnets intact until each
 Headscale compartment passes its negative tests and exact-node expiry test. Remove the
 Tailscale OAuth expiry credential only after the matching local Headscale expiry path is
@@ -188,7 +188,7 @@ Before migrating an existing Tailscale installation:
 1. Finish or abandon the current Vault session.
 2. Verify no S3 proxy tunnel is active.
 3. Verify both RHEL rest-server backends are stopped.
-4. Preserve the current canonical guide and threat model.
+4. Preserve the current core guide and threat model.
 5. Export the current Tailscale node identities only for rollback documentation; do not
    copy Tailnet Lock disablement secrets onto the VPSs.
 6. Take a provider snapshot of `vault-pc` and `vault-phone` if the VPS provider offers
@@ -221,7 +221,7 @@ pc-control.example.net      -> vault-pc public IPv4
 phone-control.example.net   -> vault-phone public IPv4
 ```
 
-The canonical Vault VPSs are RHEL 9 BYOL/BYOI hosts and use firewalld. Caddy is the
+The core Vault VPSs are RHEL 9 BYOL/BYOI hosts and use firewalld. Caddy is the
 public HTTPS reverse proxy for this extension.
 
 Install Caddy using the Caddy project's official CentOS/RHEL package path. The official
@@ -251,7 +251,7 @@ sudo firewall-cmd --zone=drop --list-all
 sudo firewall-cmd --zone=drop --list-rich-rules
 ```
 
-The canonical SSH and UDP/51830 `wg-cross` rich rules remain unchanged.
+The core SSH and UDP/51830 `wg-cross` rich rules remain unchanged.
 
 Do **not** open UDP/40000 here. That belongs only to the Peer Relay extension.
 
@@ -266,7 +266,7 @@ for **Headscale 0.29.2 or a later reviewed 0.29.x patch release**.
 The Headscale project currently documents DEB packages as its integrated package path.
 The RPM repository commonly referenced for Fedora/RHEL is community-maintained. For this
 Vault security boundary, do **not** make a third-party COPR repository part of the
-canonical control-plane supply chain.
+core control-plane supply chain.
 
 Use the Headscale project's **official standalone release binary** and manage the
 service/user/unit explicitly.
@@ -531,7 +531,7 @@ Stop if Headscale is not listening only on the expected loopback address.
 
 ## 7. Preserve browser-mediated MFA with Authelia/OIDC
 
-The canonical Vault expects the primary-device enrollment/sign-in ceremony to require
+The core Vault expects the primary-device enrollment/sign-in ceremony to require
 browser-mediated authentication rather than a reusable pre-auth key stored on the
 primary device.
 
@@ -736,7 +736,7 @@ The browser flow must require the expected OIDC/MFA path.
 
 ### 11.3 RHEL-PC instance joins
 
-The canonical RHEL guide already runs two separate `tailscaled` instances. For the
+The core RHEL guide already runs two separate `tailscaled` instances. For the
 PC namespace, use the PC instance's daemon socket:
 
 ```bash
@@ -884,7 +884,7 @@ Phone compartment example:
 }
 ```
 
-The canonical coordinator/proxy port numbers in your copy of the master guide are the
+The core coordinator/proxy port numbers in your copy of the master guide are the
 authority. If that guide uses a different port, use the guide's actual port rather than
 blindly pasting the examples above.
 
@@ -910,7 +910,7 @@ policy is correct.
 
 ## 14. Replace the Tailscale API expiry helper with local exact-node expiry
 
-The canonical Tailscale guide uses an OAuth-backed exact-device helper as a compensating
+The core Tailscale guide uses an OAuth-backed exact-device helper as a compensating
 control around the broad `devices:core` scope. In this extension the helper is removed
 and replaced with a local Headscale command path.
 
@@ -1118,7 +1118,7 @@ credential remains valid.
 
 ---
 
-## 15. Update the canonical VPS coordinator assumptions
+## 15. Update the core VPS coordinator assumptions
 
 The cross-VPS coordinator, signature keys, session deadline state and AWS/RHEL proof
 formats do not change.
@@ -1151,7 +1151,7 @@ containment path. `CLOSE_PEER s3` is authenticated with the Vault VPS Ed25519 si
 keys and transported over the dedicated `wg-cross` link; it is not authorized by
 Tailscale Tailnet Lock, Headscale ACL state, or the node-expiry mechanism.
 
-After migration, rerun the canonical tests proving:
+After migration, rerun the core tests proving:
 
 ```text
 own MFA + opposite primary absent -> no fresh S3 issuance
@@ -1186,7 +1186,7 @@ understanding how it enrolled.
 
 ### Test H-02 — primary inbound prohibition
 
-From `vault-pc`, attempt a new connection to an arbitrary PC port that has no canonical
+From `vault-pc`, attempt a new connection to an arbitrary PC port that has no core
 return connection:
 
 ```bash
@@ -1331,7 +1331,7 @@ self-hosted DERP are separate decisions.
 
 ---
 
-## 19. Revert to the canonical Tailscale + Tailnet Lock baseline
+## 19. Revert to the core Tailscale + Tailnet Lock baseline
 
 Rollback is a planned migration, not `tailscale logout` on random nodes.
 
@@ -1344,7 +1344,7 @@ Rollback is a planned migration, not `tailscale logout` on random nodes.
 
 ### Phase 2 — recreate/verify the two independent Tailscale tailnets
 
-Return to the canonical topology:
+Return to the core topology:
 
 ```text
 PC tailnet:
@@ -1358,8 +1358,8 @@ Phone tailnet:
   RHEL-Phone
 ```
 
-Enable Tailnet Lock and establish the canonical signer set before opening Vault access.
-Remember that Android is not used as a signing node in the canonical plan.
+Enable Tailnet Lock and establish the core signer set before opening Vault access.
+Remember that Android is not used as a signing node in the core plan.
 
 ### Phase 3 — migrate every node
 
@@ -1371,7 +1371,7 @@ Verify exact Tailscale node IDs and IPs before configuring the expiry helper.
 ### Phase 4 — reinstall exact-device Tailscale expiry helper
 
 Create one separate OAuth credential per tailnet with the documented `devices:core`
-scope and exact helper tag/constraints from the canonical guide.
+scope and exact helper tag/constraints from the core guide.
 
 Reinstall the root-owned helper exactly as documented in the master. Do not invent a
 broader general-purpose Tailscale API wrapper.
@@ -1383,7 +1383,7 @@ connectivity.
 
 ### Phase 6 — remove Headscale only after negative tests pass
 
-After the canonical day-zero tests pass:
+After the core day-zero tests pass:
 
 ```bash
 sudo systemctl disable --now headscale
@@ -1423,7 +1423,7 @@ Replacement expiry risk H-01:
 Invariants I-01 through I-14 otherwise remain in force.
 ```
 
-When reverting to Tailscale, restore the canonical T-04 and T-06 entries and mark
+When reverting to Tailscale, restore the core T-04 and T-06 entries and mark
 `EXT-HEADSCALE DISABLED` in the threat-model change log.
 
 ---
@@ -1435,23 +1435,23 @@ Choose this extension when the following statement is more important to you:
 > The Vault's server-side session revocation should use local exact-node authority and
 > should not retain a broad Tailscale devices:core OAuth credential.
 
-Stay on the canonical Tailscale baseline when this statement is more important:
+Stay on the core Tailscale baseline when this statement is more important:
 
 > A coordination-plane-only compromise should not be able to introduce an unsigned node
 > that locked peers accept, and Tailscale-hosted DERP should remain a provider-operated relay
 > surface rather than a Vault VPS listener.
 
-For this project, the second statement is why Tailscale remains the canonical default.
+For this project, the second statement is why Tailscale remains the core default.
 
 ## HARDENING COMPATIBILITY DELTA
 
-This extension is subordinate to the canonical master guide's
+This extension is subordinate to the core master guide's
 `PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
 
 Rules:
 
 ```text
-do not broaden Fedora's canonical single-source backup binding
+do not broaden Fedora's core single-source backup binding
 do not replace rootless Podman with rootful/privileged Podman
 do not disable SELinux labeling to fix an extension error
 do not apply a generic SystemCallFilter to network/control-plane services without tests
@@ -1470,13 +1470,13 @@ Do not apply the empty-capability profile from the custom Go coordinator blindly
 service identity, and inspect `systemd-analyze security headscale.service`.
 
 The local `vault-headscale-expire-primary.service` is narrower. Apply the same generic
-custom-helper hardening principles as the canonical Tailscale expiry helper:
+custom-helper hardening principles as the core Tailscale expiry helper:
 `NoNewPrivileges`, `ProtectSystem=strict`, `ProtectHome=yes`, kernel protection,
 `PrivateDevices`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictRealtime`,
 `SystemCallArchitectures=native`, a narrow address-family set, and explicit read/write
 paths.
 
-Do not weaken the canonical coordinator service identity, DAC permissions, systemd
+Do not weaken the core coordinator service identity, DAC permissions, systemd
 sandbox, or cross-VPS signing controls during a Tailscale-to-Headscale migration.
 
 ## 21. RHEL 9 SELinux boundary for the Headscale extension
@@ -1493,7 +1493,7 @@ Expected:
 Enforcing
 ```
 
-The canonical Headscale extension does **not** require the operator to create a custom
+The core Headscale extension does **not** require the operator to create a custom
 SELinux policy module for the standalone Headscale binary. Do not run
 `sepolicy generate --init`, auto-load `audit2allow` output, or make a new Headscale
 domain permissive as part of this guide.

@@ -1,10 +1,10 @@
 # THE VAULT — POST-INSTALL DETECTION, INCIDENT VISIBILITY, AND CREDENTIAL CUSTODY
 ================================================================================
 
-> **Status: mandatory production-entry stage for the canonical Vault baseline.**
+> **Status: mandatory production-entry stage for the core Vault baseline.**
 >
 > Apply this guide **after** completing
-> `Vault_Zero_Trust_Master_Guide_CANONICAL_TAILSCALE_OUTBOUND_ONLY_NO_PRUNE.md`
+> `Vault_Zero_Trust_Master_Guide_CORE_TAILSCALE_OUTBOUND_ONLY_NO_PRUNE.md`
 > and its day-zero correctness tests, but **before** treating the system as production.
 > This is not one of the four architecture extensions. It does not change the backup
 > topology. It adds an independent detection plane, alert health checks, evidence
@@ -16,7 +16,7 @@
 
 ## 1. What this guide is trying to achieve
 
-The canonical Vault already tries to **prevent** one compromised endpoint or one
+The core Vault already tries to **prevent** one compromised endpoint or one
 compromised VPS from independently creating a new AWS/RHEL backup window. Prevention is
 not the same as visibility. A broad credential such as Tailscale `devices:core`, an
 unexpected daily-slot consume, or an unexpected `AssumeRole` attempt should be noisy
@@ -82,7 +82,7 @@ peer close, one-hour deadline, separate buckets/roles, RHEL local verification, 
 budget deny remain the preventive/containment layers.
 
 The completion revokers are **not part of this detection plane** merely because they run
-in AWS. They are preventive/containment components from the canonical master. This guide
+in AWS. They are preventive/containment components from the core master. This guide
 adds visibility around their Lambda health and around the privileged
 `iam:PutRolePolicy` transition they are expected to perform.
 
@@ -611,21 +611,21 @@ You need:
 ```text
 PC_EXPIRY_ACTOR_ID
 PHONE_EXPIRY_ACTOR_ID
-PC_EXPIRY_CLIENT_ID    devices:core OAuth Client ID from canonical setup
-PHONE_EXPIRY_CLIENT_ID devices:core OAuth Client ID from canonical setup
+PC_EXPIRY_CLIENT_ID    devices:core OAuth Client ID from core setup
+PHONE_EXPIRY_CLIENT_ID devices:core OAuth Client ID from core setup
 PC_USER_ACTOR_ID       optional but recommended
 PHONE_USER_ACTOR_ID    optional but recommended
 ```
 
-Perform one supervised canonical Vault session on a day you can observe closely. In each
+Perform one supervised core Vault session on a day you can observe closely. In each
 Tailscale admin console open **Logs** and inspect:
 
 1. the exact node-key expiry produced by the root-owned exact-device expiry helper;
 2. the primary user's normal re-authentication event.
 
 Record the immutable actor `id` values and exact primary node target IDs. Confirm the
-expiry event targets the same NodeID documented by the canonical guide and changes
-`KEY_EXPIRY_TIME`. Also copy each canonical expiry OAuth credential's **Client ID** (not
+expiry event targets the same NodeID documented by the core guide and changes
+`KEY_EXPIRY_TIME`. Also copy each core expiry OAuth credential's **Client ID** (not
 the secret) as `PC_EXPIRY_CLIENT_ID` / `PHONE_EXPIRY_CLIENT_ID`.
 
 The `devices:core` trust credential's API access-token creation itself is audit logged
@@ -962,7 +962,7 @@ zip -qr /tmp/vault-audit-watch.zip index.mjs package.json package-lock.json node
 ```
 
 Create the function. Replace every placeholder with the exact values from your two
-tailnets and canonical deployment:
+tailnets and core deployment:
 
 ```bash
 aws lambda create-function \
@@ -1239,7 +1239,7 @@ npm install --omit=dev
 zip -qr /tmp/vault-sts-watch.zip index.mjs package.json package-lock.json node_modules
 ```
 
-Retrieve the four ARNs from the canonical deployment and create the function:
+Retrieve the four ARNs from the core deployment and create the function:
 
 ```bash
 export PC_GATE_ROLE_ARN="$(aws iam get-role --role-name Vault-PC-S3-Gate-ExecutionRole --query Role.Arn --output text)"
@@ -1445,7 +1445,7 @@ caller targeting either backup role is CRITICAL.
 
 ### Why this detector exists
 
-The canonical coordinator rejects a wrong device phase token and rejects invalid
+The core coordinator rejects a wrong device phase token and rejects invalid
 cross-VPS close/signature payloads. A 256-bit random phase token and Ed25519 signing key
 are not realistically brute-forced by online guessing. However, repeated authorization
 failures are still a high-signal indication of one of the following:
@@ -1486,7 +1486,7 @@ PEER_SIGNATURE_INVALID
 
 PEER_PAYLOAD_INVALID
   signed peer-close payload has wrong target, deadline, freshness, lifetime,
-  canonical encoding, or other exact-session semantics
+  core encoding, or other exact-session semantics
   threshold: 1 event -> CRITICAL
 ```
 
@@ -1509,7 +1509,7 @@ Log only the event class, source IP, local coordinator role, command class, and 
 
 ### 6A.2 Add structured security events to the coordinator
 
-The canonical coordinator currently returns protocol rejection text to the caller. During
+The core coordinator currently returns protocol rejection text to the caller. During
 this mandatory detection stage, add structured journal events to the same reviewed Go
 source before rebuilding it.
 
@@ -1553,7 +1553,7 @@ securityEvent("PEER_SIGNATURE_INVALID", sourceIP, "PEER", "cross-vps Ed25519 ver
 ```
 
 At exact-session peer payload validation failures caused by target, deadline, freshness,
-lifetime, canonical encoding, or equivalent payload-semantic mismatch, emit:
+lifetime, core encoding, or equivalent payload-semantic mismatch, emit:
 
 ```go
 securityEvent("PEER_PAYLOAD_INVALID", sourceIP, "PEER", "cross-vps payload semantics rejected")
@@ -1562,7 +1562,7 @@ securityEvent("PEER_PAYLOAD_INVALID", sourceIP, "PEER", "cross-vps payload seman
 Keep the existing rejection/error return. Logging is additive and must not convert a
 rejection into success.
 
-Reformat, build, and restart exactly as in the canonical coordinator install section:
+Reformat, build, and restart exactly as in the core coordinator install section:
 
 ```bash
 gofmt -w /usr/local/src/vault-device-coordinator/main.go
@@ -1994,7 +1994,7 @@ sudo journalctl -u vault-auth-failure-watch.service --since '-5 min' --no-pager
 Then perform one wrong-token attempt only and wait more than 60 seconds. It must be
 rejected but must not independently trigger the five-in-60-seconds alert.
 
-For cross-VPS validation, use the canonical unit-test harness to feed one invalid
+For cross-VPS validation, use the core unit-test harness to feed one invalid
 signature and one exact-session payload mismatch. Do not test this by modifying a
 production VPS private key. Each synthetic event must create an immediate CRITICAL alert.
 
@@ -2064,7 +2064,7 @@ or finalize the exact role-session revocation policy. The alarms do not decide i
 cause; they prevent an ambiguous authorization or containment path from failing silently.
 
 Also monitor EventBridge Scheduler invocation failures for `VaultAuditWatchEvery5Minutes`
-and EventBridge invocation failures for both canonical five-minute completion reconcile
+and EventBridge invocation failures for both core five-minute completion reconcile
 rules. If you use a dead-letter queue for either path, alert on messages arriving there.
 A daily workflow that reaches the signed deadline while waiting for the opposite exact
 session to become `REVOKED` is itself an operational containment incident; preserve the
@@ -2136,7 +2136,7 @@ Never log:
 
 ```text
 raw proof signatures
-raw canonical payload
+raw core payload
 DONE token
 repository password
 restic credentials
@@ -2147,7 +2147,7 @@ Log only the event type, source address, target compartment, and a bounded reaso
 
 ### 6B.2 Add structured security logging to the RHEL gate
 
-Patch the canonical `/usr/local/src/vault-rhel-gate/main.go` source and rebuild the
+Patch the core `/usr/local/src/vault-rhel-gate/main.go` source and rebuild the
 existing binary. Add these helpers:
 
 ```go
@@ -2480,14 +2480,14 @@ TCP 3389  (RDP — should never be used on RHEL)
 ```
 
 Use lightweight listeners (netcat or a minimal Python socket) that log and alert on any
-connection attempt. The canonical architecture ensures that the phone and PC never
+connection attempt. The core architecture ensures that the phone and PC never
 connect to anything other than the exact Caddy proxy port.
 
 Any connection to a honeypot port is a CRITICAL event.
 
 ### 9.3 Cloud canaries (AWS)
 
-Create deceptive AWS resources that the canonical system never accesses:
+Create deceptive AWS resources that the core system never accesses:
 
 ```text
 S3 bucket:       vault-backup-archive-admin-do-not-delete
@@ -2495,7 +2495,7 @@ DynamoDB table:  VaultMasterKeys
 ```
 
 Configure CloudTrail to alert on any API call targeting these resources. Because the
-canonical IAM roles are strictly bound to their respective production resources, any
+core IAM roles are strictly bound to their respective production resources, any
 access attempt indicates credential theft or unauthorized AWS account exploration.
 
 ### 9.4 DNS canaries (container egress detection)
@@ -2523,7 +2523,7 @@ Prefer service/process separation:
 
 ```text
 vault S3 proxy service user
-  -> exact S3 destinations required by the canonical proxy
+  -> exact S3 destinations required by the core proxy
 
 cross-VPS WireGuard
   -> exact opposite VPS public IP + exact wg-cross UDP port
@@ -2539,7 +2539,7 @@ unrecognized local service/user
 ```
 
 On Linux, `nftables` can combine process UID (`meta skuid`) with destination policy. The
-canonical S3 proxy already narrows application destinations. Add final deny logging with
+core S3 proxy already narrows application destinations. Add final deny logging with
 a prefix such as:
 
 ```text
@@ -2903,7 +2903,7 @@ On each VPS through the provider console or initial trusted setup session:
 sudo useradd -m -s /bin/bash vaultadmin
 sudo passwd vaultadmin
 sudo usermod -aG wheel vaultadmin      # RHEL-family
-# Canonical Vault VPSs are RHEL 9; use the wheel group. Debian/Ubuntu is no longer the canonical VPS path.
+# Core Vault VPSs are RHEL 9; use the wheel group. Debian/Ubuntu is no longer the core VPS path.
 
 sudo install -d -o vaultadmin -g vaultadmin -m 700 /home/vaultadmin/.ssh
 sudo install -o vaultadmin -g vaultadmin -m 600 /dev/null \
@@ -3126,7 +3126,7 @@ phishing-resistant.
 4. Verify the backup-role permissions boundary is still attached and unchanged.
 5. If the exact slot is stuck REVOKING or the daily workflow hit the completion barrier
    deadline, do not delete/rewrite the slot. Repair the revoker/reconcile path and treat
-   the old session as potentially usable only up to the canonical hard ceiling.
+   the old session as potentially usable only up to the core hard ceiling.
 6. Re-run snapshot-only, snapshot+later-lock-removal, old-STS-denied, and signed peer-close
    acceptance tests before production resumes.
 ```
@@ -3271,7 +3271,7 @@ The intended security statement is:
 
 ## 25. Detect hardening drift and confinement failures
 
-The canonical production baseline now includes systemd and Podman confinement. Detection
+The core production baseline now includes systemd and Podman confinement. Detection
 must observe **drift and failure**, not merely assume the unit files remain unchanged.
 
 ### 17.1 What is security-significant
@@ -3413,7 +3413,7 @@ sudo ausearch -m AVC,USER_AVC -ts boot 2>/dev/null || true
 
 Do not respond to an AVC by disabling SELinux or container labeling. Identify the exact
 service, source/target context, object path, and operation. Reconcile the confinement
-contract with the updated software, then rerun the canonical hardening acceptance matrix.
+contract with the updated software, then rerun the core hardening acceptance matrix.
 
 ### 17.4 Alert-plane integration
 
@@ -3457,7 +3457,7 @@ ps -eZ | grep vault-device-coordinator || true
 ps -eZ | grep vault-s3-proxy || true
 ```
 
-The canonical baseline does not require a dedicated custom SELinux domain for those
+The core baseline does not require a dedicated custom SELinux domain for those
 native Go daemons and does not alert merely because one appears in
 `unconfined_service_t`.
 
@@ -3480,7 +3480,7 @@ containers. Do not silence them by setting the host permissive, disabling SELinu
 adding `label=disable`.
 
 For the native coordinator/proxy, do not auto-generate and load a local policy with
-`audit2allow`. The canonical response to a service problem is:
+`audit2allow`. The core response to a service problem is:
 
 ```text
 verify DAC ownership and group membership

@@ -8,10 +8,10 @@ trying to protect, the compromise assumptions that are allowed during reasoning,
 security invariants that must remain true, and the residual risks that the operator
 accepts.
 
-The canonical implementation is:
+The core implementation is:
 
 ```text
-Vault_Zero_Trust_Master_Guide_CANONICAL_TAILSCALE_OUTBOUND_ONLY_NO_PRUNE.md
+Vault_Zero_Trust_Master_Guide_CORE_TAILSCALE_OUTBOUND_ONLY_NO_PRUNE.md
 ```
 
 The mandatory post-install production-entry profile is:
@@ -41,7 +41,7 @@ Phone plaintext source
 
 vault-pc <---- dedicated wg-cross ----> vault-phone
       \                                 /
-       \---- canonical dual signatures-/
+       \---- core dual signatures-/
 
 PC tailnet
   PC + vault-pc + RHEL-PC instance
@@ -70,7 +70,7 @@ The baseline RHEL host does not store them.
 ### A3 — VPS Vault Ed25519 signing private keys
 
 `vault-pc` and `vault-phone` each hold one independent signing key. A valid fresh AWS or
-RHEL authorization proof requires both signatures on the same canonical payload.
+RHEL authorization proof requires both signatures on the same core payload.
 
 ### A4 — Device phase tokens
 
@@ -160,7 +160,7 @@ Neither primary runs a Vault receiver service in the baseline.
 ### I-03 — Two independent Vault signatures
 
 AWS S3 issuance and RHEL backend opening require valid `vault-pc` and `vault-phone`
-Ed25519 signatures over the exact same canonical fresh payload.
+Ed25519 signatures over the exact same core fresh payload.
 
 ### I-03A — Fresh S3 opening requires live participation from both primaries
 
@@ -504,7 +504,7 @@ claim.
 
 **Scenario:** package upgrade, manual edit, or generated-guide drift weakens an invariant.
 
-**Controls:** one canonical guide; separate extensions; pinned/recorded versions where
+**Controls:** one core guide; separate extensions; pinned/recorded versions where
 security-sensitive; build/vet/syntax checks; hashes after acceptance; day-zero negative
 tests; extension-specific rollback instructions.
 
@@ -666,7 +666,7 @@ When enabling an extension:
 ### Change log
 
 ```text
-2026-07-15 | BASELINE | Canonical Tailscale + Tailnet Lock + Tailscale-hosted DERP,
+2026-07-15 | BASELINE | Core Tailscale + Tailnet Lock + Tailscale-hosted DERP,
            |          | outbound-only, keyless RHEL, no-prune.
 2026-07-15 | DETECT   | Mandatory AWS-side SlotWatch/AuditWatch/StsWatch and credential
            |          | custody profile added before production sign-off.
@@ -698,9 +698,9 @@ RHEL root compromise      != repository decryption in the keyless baseline
 Any future change that invalidates one of these equations is a threat-model change, not
 a routine configuration edit.
 
-## APPENDIX H — SYSTEMD/PODMAN CONFINEMENT DELTA (CANONICAL PRODUCTION BASELINE)
+## APPENDIX H — SYSTEMD/PODMAN CONFINEMENT DELTA (CORE PRODUCTION BASELINE)
 
-The canonical production baseline includes the master guide's
+The core production baseline includes the master guide's
 `PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
 
 ### H-A1 — Additional security objective
@@ -733,7 +733,7 @@ bind the maintenance credential directory or the opposite repository.
 
 ### H-I4 — No privileged-container escape hatch
 
-The canonical baseline prohibits `--privileged`, SELinux label disablement, unconfined
+The core baseline prohibits `--privileged`, SELinux label disablement, unconfined
 seccomp as a troubleshooting shortcut, and broad host filesystem bind mounts for Vault
 containers.
 
@@ -762,11 +762,11 @@ enforcement, or repository isolation to fail is classified as HIGH severity even
 ### H-R4 — Virtiofsd Sandbox Escape / Write Primitive Abuse
 
 When using Kata Containers/Firecracker for MicroVM isolation, the host-to-guest filesystem bridge (`virtiofsd`) presents a critical attack surface. A compromise of `virtiofsd` could theoretically allow an attacker to escape the MicroVM or read/write arbitrary host files.
-While this risk is heavily mitigated by SELinux enforcing mode, namespace/chroot sandboxing, and host filesystem `noexec`/`nodev` restrictions (as defined in the CANONICAL guide), a residual risk remains for the `rest-server` container. Because the `rest-server` inherently requires write access to the host repository, it cannot benefit from the `:ro` (read-only) mount mitigation applied to Caddy. If a novel zero-day in `virtiofsd` bypasses the `namespace` sandbox and SELinux, the attacker could theoretically corrupt the backup repository. This underscores the necessity of independent, off-site replication outside the scope of the primary RHEL host.
+While this risk is heavily mitigated by SELinux enforcing mode, namespace/chroot sandboxing, and host filesystem `noexec`/`nodev` restrictions (as defined in the CORE guide), a residual risk remains for the `rest-server` container. Because the `rest-server` inherently requires write access to the host repository, it cannot benefit from the `:ro` (read-only) mount mitigation applied to Caddy. If a novel zero-day in `virtiofsd` bypasses the `namespace` sandbox and SELinux, the attacker could theoretically corrupt the backup repository. This underscores the necessity of independent, off-site replication outside the scope of the primary RHEL host.
 
 ## APPENDIX P — RHEL 9 BYOL/BYOI VPS PLATFORM DELTA
 
-The canonical `vault-pc` and `vault-phone` hosts are RHEL 9 BYOL/BYOI systems on OCI
+The core `vault-pc` and `vault-phone` hosts are RHEL 9 BYOL/BYOI systems on OCI
 Free Tier. The current active RHEL 9 minor is used; this revision was normalized against
 RHEL 9.8.
 
@@ -790,7 +790,7 @@ DAC ownership/mode separation and effective systemd sandboxing are production
 invariants. The exact-device expiry helper remains a separately modeled root-owned
 privileged helper.
 
-The canonical baseline does **not** claim dedicated SELinux MAC domains for the custom
+The core baseline does **not** claim dedicated SELinux MAC domains for the custom
 native Go daemons. RHEL SELinux remains Enforcing, but custom policy development is
 outside the required operator skill set for this design.
 

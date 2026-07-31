@@ -2,11 +2,11 @@
 ================================================================================
 
 > [!WARNING]
-> **REJECTED:** This extension has been rejected for security reasons and its contents are not included in the Canonical master guide.
+> **REJECTED:** This extension has been rejected for security reasons and its contents are not included in the Core master guide.
 
 ## 1. What this extension changes
 
-The canonical master is outbound-only: PC and Phone never run Vault receivers and never
+The core master is outbound-only: PC and Phone never run Vault receivers and never
 accept a Vault application connection from the other primary. This extension deliberately
 adds one encrypted restic repository copy in the opposite primary device:
 
@@ -36,7 +36,7 @@ Apply the threat-model delta in Section 16 before enabling this extension.
 ## 2. Compatibility matrix
 
 ```text
-Canonical Tailscale baseline        compatible
+Core Tailscale baseline        compatible
 Headscale control-plane extension   compatible
 Peer Relay extension                unrelated; mutual path uses its own WireGuard tunnel
 Prune extension                     compatible, but Section 14 intersection rules apply
@@ -45,9 +45,9 @@ Prune extension                     compatible, but Section 14 intersection rule
 ## 3. Install now vs add later
 
 The installation procedure is the same whether enabled on day zero or years later.
-When adding later, first complete one healthy canonical S3 + RHEL backup from both
+When adding later, first complete one healthy core S3 + RHEL backup from both
 sources and record the success markers. The mutual repositories are additional copies;
-do not destroy or rename the canonical source directories.
+do not destroy or rename the core source directories.
 
 When removing later, follow Section 15. Do not simply stop using the scripts while
 leaving receiver services, firewall rules, htpasswd files, and tunnel keys active.
@@ -73,7 +73,7 @@ REST/TLS:
   PC receiver    https://10.77.0.2:8000/
 ```
 
-Do not reuse the canonical Tailscale addresses, RHEL repository paths, or S3 bucket
+Do not reuse the core Tailscale addresses, RHEL repository paths, or S3 bucket
 names for this extension.
 
 ## 5. Install packages
@@ -99,7 +99,7 @@ mkdir -p ~/.shortcuts ~/.local/log/vault-mutual ~/bin
 chmod 700 ~/.config/vault-mutual
 ```
 
-Install the same reviewed `rest-server` version used by the canonical RHEL build. On
+Install the same reviewed `rest-server` version used by the core RHEL build. On
 Fedora the extension runs it in rootless Podman. On Termux install the matching ARM64
 binary in `$PREFIX/bin/rest-server` and verify:
 
@@ -539,7 +539,7 @@ bash -n ~/.shortcuts/Vault\ Mutual\ Phone\ Send.sh
 
 ### 12.5 Exact operator sequence
 
-Run mutual backup **after** the canonical S3/RHEL workflows complete:
+Run mutual backup **after** the core S3/RHEL workflows complete:
 
 ```text
 1. Enable Phone hotspot; connect PC.
@@ -627,7 +627,7 @@ extension.
 
 Removal restores the baseline only if all receiver/network capability is removed.
 
-1. Complete a healthy canonical PC and Phone S3 + RHEL backup.
+1. Complete a healthy core PC and Phone S3 + RHEL backup.
 2. Decide whether to retain the two mutual ciphertext repositories as offline archives
    or erase them. Their data is encrypted; deletion is an operator retention decision.
 3. Stop both receiver services and prove ports `10.77.0.1:8000` and `10.77.0.2:8000`
@@ -641,11 +641,11 @@ Removal restores the baseline only if all receiver/network capability is removed
 10. Remove server private keys after any retained mutual repository has been moved to an
     offline archive and no receiver will be reopened.
 11. Remove mutual steps from operator shortcuts.
-12. Re-run canonical day-zero negative tests: no primary Vault listener; no PC↔Phone
+12. Re-run core day-zero negative tests: no primary Vault listener; no PC↔Phone
     application data path.
 13. Apply the threat-model rollback below.
 
-Deleting the mutual repository copies does not affect canonical RHEL or S3 repositories.
+Deleting the mutual repository copies does not affect core RHEL or S3 repositories.
 
 ## 16. Threat-model delta
 
@@ -677,17 +677,17 @@ New maintenance controls:
 
 When removing, mark M-01 `removed` only after both receiver listeners, firewall rule,
 tunnel profile/keys, client htpasswd copies, and operator scripts are removed and the
-canonical outbound-only negative tests pass.
+core outbound-only negative tests pass.
 
 ## HARDENING COMPATIBILITY DELTA
 
-This extension is subordinate to the canonical master guide's
+This extension is subordinate to the core master guide's
 `PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
 
 Rules:
 
 ```text
-do not broaden Fedora's canonical single-source backup binding
+do not broaden Fedora's core single-source backup binding
 do not replace rootless Podman with rootful/privileged Podman
 do not disable SELinux labeling to fix an extension error
 do not apply a generic SystemCallFilter to network/control-plane services without tests
@@ -704,7 +704,7 @@ This extension intentionally adds receiver services to the primary devices and t
 changes the baseline "no Vault receiver on primaries" property. The receiver process
 must see only the **encrypted mutual repository destination**, its exact htpasswd/TLS
 material, and its own runtime/log paths. It must not receive a bind of the ordinary home
-tree or the canonical plaintext source folder.
+tree or the core plaintext source folder.
 
 On Fedora, retain rootless Podman and require:
 
@@ -718,10 +718,10 @@ SELinux label separation enabled
 
 The mutual receiver's repository volume is the only writable persistent data mount.
 Because this extension's Phone receiver runs under Termux rather than systemd, the
-canonical systemd section does not create a false claim of equivalent Phone-side process
+core systemd section does not create a false claim of equivalent Phone-side process
 sandboxing. That asymmetry is part of this extension's residual risk.
 
-## CANONICAL RHEL 9 VPS PLATFORM NOTE
+## CORE RHEL 9 VPS PLATFORM NOTE
 
 This extension does not change either Vault VPS operating system. `vault-pc` and
 `vault-phone` remain RHEL 9 BYOL/BYOI hosts with SELinux Enforcing, firewalld, and the

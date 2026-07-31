@@ -12,15 +12,15 @@ The project is currently shelved pending personal audit and real deployment test
 
 ## Documentation Status
 
-*   `docs/canonical/Vault_Zero_Trust_Master_Guide_CANONICAL.md`: **FINALIZED (v1)** - The immutable reference for the core backup architecture.
-*   `docs/canonical/Vault_Post_Install_Detection_and_Credential_Custody.md`: **FINALIZED (v1)** - The reference for the detection plane (AWS VaultAuditWatch) and credential hygiene. Includes Honeypot setup.
+*   `docs/core/Vault_Zero_Trust_Master_Guide_CORE.md`: **FINALIZED (v1)** - The immutable reference for the core backup architecture.
+*   `docs/core/Vault_Post_Install_Detection_and_Credential_Custody.md`: **FINALIZED (v1)** - The reference for the detection plane (AWS VaultAuditWatch) and credential hygiene. Includes Honeypot setup.
 *   `docs/extensions/Vault_Extension_Host_Level_Containment.md`: **PROPOSED** - Advanced hardening for SELinux, kernel monitoring (Falco), and hardware VM isolation.
 *   `docs/extensions/Vault_Extension_OOB_Notification_Routing.md`: **PROPOSED** - Cross-routed notification strategy (PC -> Phone, Phone -> PC) using E-mail and Telegram.
 *   `docs/extensions/Vault_Extension_Offline_CA_and_Console_Lockdown.md`: **PROPOSED** - Offline SSH CA (QR Code) authentication and PBKDF2 Break-Glass Console Lockdown.
 
 ## Current State
 
-* Canonical architecture drafted
+* Core architecture drafted
 * Threat model and residual-risk register drafted
 * Detection and credential-custody plan drafted
 * Deployment-time revalidation checklist drafted
@@ -32,12 +32,12 @@ The project is currently shelved pending personal audit and real deployment test
 * S3 Deep Archive cold-restore drill pending
 * Long-term operational validation pending
 
-## Current Canonical Decisions
+## Current Core Decisions
 
 ### Endpoint Model
 
 * PC and phone are independent security compartments.
-* Primary devices are source-only in the canonical baseline.
+* Primary devices are source-only in the core baseline.
 * No reciprocal PC-to-phone Vault data plane is enabled.
 * A single endpoint must not independently authorize a Vault backup session.
 
@@ -47,7 +47,7 @@ The project is currently shelved pending personal audit and real deployment test
 * Two independent VPS coordinators enforce the authorization ceremony.
 * AWS and RHEL admission require both expected infrastructure signatures.
 * Vault sessions use a fixed signed hard deadline.
-* The canonical session ceiling is one hour.
+* The core session ceiling is one hour.
 * `DONE` is an early-close signal and not a security factor.
 
 ### AWS Model
@@ -58,11 +58,11 @@ The project is currently shelved pending personal audit and real deployment test
 * One daily AWS issuance slot exists per device compartment.
 * The slot is consumed before the single STS credential-creation attempt.
 * Ambiguous or failed STS issuance does not restore the daily slot.
-* Credential refresh loops are not part of the canonical design.
+* Credential refresh loops are not part of the core design.
 
 ### RHEL Model
 
-* The canonical RHEL baseline is ciphertext-only.
+* The core RHEL baseline is ciphertext-only.
 * RHEL does not retain restic repository passwords for unattended maintenance.
 * PC and phone repositories are isolated.
 * Append-only ingestion is used.
@@ -73,7 +73,7 @@ The project is currently shelved pending personal audit and real deployment test
 
 ### Network Model
 
-* Tailscale is the canonical control and transport plane.
+* Tailscale is the core control and transport plane.
 * Tailnet Lock is enabled.
 * Primary Tailnet inbound connections are disabled.
 * Peer Relay is not configured.
@@ -116,7 +116,7 @@ Before deployment:
 1. Complete the personal architecture audit.
 2. Run the deployment-time revalidation checklist.
 3. Validate current external platform assumptions.
-4. Complete canonical day-zero acceptance and negative tests.
+4. Complete core day-zero acceptance and negative tests.
 5. Measure real campus-network transport behavior.
 6. Measure representative daily backup durations.
 7. Confirm the one-hour signed session ceiling remains operationally sufficient.
@@ -150,7 +150,7 @@ A personal audit will compare:
 
 * the original project design
 * architecture change history
-* the current canonical architecture
+* the current core architecture
 * the current threat model
 
 The next major architecture decisions should occur only after this audit or after real deployment measurements invalidate a current assumption.
@@ -200,7 +200,7 @@ A proposed middle-ground was a "Human-in-the-loop" webhook mechanism (e.g., via 
 
 **Classification:** ARCHITECTURE EXTENSION / OPTIONAL HARDENING
 
-Currently, the canonical architecture uses Caddy as an application-layer (L7) gate. Even without a valid Ed25519 cross-signature, Caddy's TCP port (443) remains open to the Tailnet. If an attacker bypasses the Tailscale ACL (e.g., via tag manipulation), they can establish a TCP connection and attempt to exploit memory or parsing bugs in Caddy or the Go TLS stack.
+Currently, the core architecture uses Caddy as an application-layer (L7) gate. Even without a valid Ed25519 cross-signature, Caddy's TCP port (443) remains open to the Tailnet. If an attacker bypasses the Tailscale ACL (e.g., via tag manipulation), they can establish a TCP connection and attempt to exploit memory or parsing bugs in Caddy or the Go TLS stack.
 
 An alternative is to use Single Packet Authorization (SPA) via `fwknop` to completely hide TCP ports from unauthenticated network scanners. The `nftables` policy on RHEL for port 443 (and 22) would be set to `DROP` by default. Before a backup, the client sends an HMAC-signed UDP packet to RHEL, which temporarily opens the TCP port specifically for that client's IP address.
 

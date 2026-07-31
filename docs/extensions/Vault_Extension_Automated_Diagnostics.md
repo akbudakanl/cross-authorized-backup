@@ -1,12 +1,12 @@
 # EXTENSION: AUTOMATED CORRUPTION DIAGNOSTICS & SELF-HEALING
 
-> **NOTE:** This extension plan is approved and its core concepts (out-of-band diagnostic signaling and parsing principles) are integrated directly into the Canonical master guide. This file serves as the detailed reference for the diagnostic architecture.
+> **NOTE:** This extension plan is approved and its core concepts (out-of-band diagnostic signaling and parsing principles) are integrated directly into the Core master guide. This file serves as the detailed reference for the diagnostic architecture.
 
 ================================================================================
 
 ## 1. What this extension changes
 
-The canonical master guide is designed for Zero Trust backup where the server never has the decryption keys. If data corruption (bit-rot) occurs on the RHEL server, the `restic check` running on the client will fail. However, because the client does not have SSH access to the server, it cannot directly trigger a diagnostic tool like `par2` on the server.
+The core master guide is designed for Zero Trust backup where the server never has the decryption keys. If data corruption (bit-rot) occurs on the RHEL server, the `restic check` running on the client will fail. However, because the client does not have SSH access to the server, it cannot directly trigger a diagnostic tool like `par2` on the server.
 
 This extension introduces an **Out-of-Band (OOB) Diagnostic Workflow**:
 1.  **Client Parsing:** The client parses the output of a failed `restic check` to extract the IDs of corrupted packs.

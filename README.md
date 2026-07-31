@@ -27,7 +27,7 @@ The current architecture explores:
 * signed cross-compartment close signaling
 * separate S3 buckets and IAM roles
 * append-only backup ingestion
-* ciphertext-only RHEL storage in the canonical baseline
+* ciphertext-only RHEL storage in the core baseline
 * Tailscale with Tailnet Lock
 * independent detection and credential-custody controls
 
@@ -128,7 +128,7 @@ It is not a turnkey secure backup product and makes no production-readiness clai
 
 ```text
 docs/
-├── canonical/
+├── core/
 │   ├── Vault_Master_Guide.md
 │   ├── Vault_Threat_Model.md
 │   └── Vault_Detection_and_Credential_Custody.md
@@ -147,13 +147,13 @@ docs/
     └── Vault_2026-07-16_STS_Completion_Revocation_CHANGELOG.md
 ```
 
-The canonical documents describe the reviewed baseline.
+The core documents describe the reviewed baseline.
 
 Extensions document optional trust-model or operational changes and are not enabled by default.
 
 Operational documents cover deployment-time revalidation and device lifecycle procedures.
 
-Change records preserve material security-design corrections separately from the canonical source of truth. They document why an architectural assumption changed; they do not replace the current canonical guides.
+Change records preserve material security-design corrections separately from the core source of truth. They document why an architectural assumption changed; they do not replace the current core guides.
 
 ## Project History
 

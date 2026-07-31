@@ -1,6 +1,6 @@
 # Extension: Totally Self-Hosted 3-2-1 Backup Strategy
 
-**Status:** This is an alternative architecture for users who wish to entirely eliminate the AWS S3 (Cloud) dependency from the canonical guide while strictly preserving the 3-2-1 backup rule and Zero Trust boundaries.
+**Status:** This is an alternative architecture for users who wish to entirely eliminate the AWS S3 (Cloud) dependency from the core guide while strictly preserving the 3-2-1 backup rule and Zero Trust boundaries.
 
 **Concept:** This extension provides an architecture for implementing the 3-2-1 backup rule entirely on-premises, without relying on any cloud providers (like AWS S3). It uses a permanently attached external USB hard drive on the RHEL backup server as the 3rd destination, completely isolated from the MicroVMs to maintain the strict Zero Trust threat model.
 

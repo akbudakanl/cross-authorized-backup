@@ -6,7 +6,7 @@
 
 ## 1. Purpose
 
-The canonical Vault transport order is:
+The core Vault transport order is:
 
 ```text
 direct WireGuard / UDP when available
@@ -78,9 +78,9 @@ the useful fallback remains DERP.
 ### 2.1 Enable during the initial rollout
 
 “Day-zero Peer Relay” still means **measure first**. During commissioning, complete the
-canonical direct/managed-DERP transport test with representative backup delta data. If
+core direct/managed-DERP transport test with representative backup delta data. If
 the Section 2 decision tree reaches D=YES and its shared-NAT exposure is explicitly
-accepted in that same rollout window, apply Sections 4–12 before storing irreplaceable data and then rerun the canonical day-zero negative
+accepted in that same rollout window, apply Sections 4–12 before storing irreplaceable data and then rerun the core day-zero negative
 tests.
 
 Do not pre-open UDP/40000 or advertise relay capability before the measurement merely
@@ -88,20 +88,20 @@ because the extension file exists.
 
 ### 2.2 Add later
 
-If the canonical deployment has already been running, keep the current direct/DERP
+If the core deployment has already been running, keep the current direct/DERP
 transport active while collecting the Section 4 baseline. Apply Peer Relay one
 compartment at a time, prove actual Peer Relay selection, then prove DERP fallback by
 blocking UDP/40000. The AWS/RHEL authorization and daily-slot state are not migrated;
 this extension changes only transport.
 
 Removal is fully documented in Section 13. Removing Peer Relay later must restore the
-canonical `direct -> managed/public DERP` path and close UDP/40000 on both VPSs.
+core `direct -> managed/public DERP` path and close UDP/40000 on both VPSs.
 
 ---
 
 ## 3. Compatibility
 
-### Canonical Tailscale baseline
+### Core Tailscale baseline
 
 Use a Tailscale client version that supports Peer Relay. The current implementation plan
 requires Tailscale **1.86 or later** on the relay and participating clients.
@@ -217,7 +217,7 @@ attack surface.
 ### 5.2 Add the existing RHEL-home egress identity
 
 The matching RHEL tailnet instance also needs to reach the relay endpoint. Reuse the
-already documented and verified RHEL-home public egress identity from the canonical
+already documented and verified RHEL-home public egress identity from the core
 firewall/whitelist model. Prefer the exact current `/32` when the home egress address is
 stable.
 
@@ -251,7 +251,7 @@ DERP.
 
 ### 5.4 Mirror the same source allowlist in RHEL firewalld
 
-The canonical Vault VPSs use firewalld. Examples only; replace every placeholder with
+The core Vault VPSs use firewalld. Examples only; replace every placeholder with
 measured values.
 
 On `vault-pc`:
@@ -335,7 +335,7 @@ Do not advertise the other compartment's address.
 ## 7. Grant relay capability narrowly
 
 Peer Relay requires an application capability grant. The exact policy syntax depends on
-whether the canonical Tailscale control plane or Headscale extension is active, but the
+whether the core Tailscale control plane or Headscale extension is active, but the
 security rule is the same:
 
 ```text
@@ -376,7 +376,7 @@ In the Phone tailnet, independently add:
 }
 ```
 
-Use the exact user/tag selectors already established by the canonical policy. Do not
+Use the exact user/tag selectors already established by the core policy. Do not
 replace a narrow policy with `autogroup:member -> *` merely to make the relay appear.
 
 ### 7.2 Headscale grant example
@@ -634,10 +634,10 @@ bandwidth bill.
 ### 12.1 Completion containment must survive the transport change
 
 Peer Relay changes packet transport only and does not replace successful-completion
-revocation, exact-session status, or signed cross-VPS `CLOSE_PEER`. Rerun the canonical
+revocation, exact-session status, or signed cross-VPS `CLOSE_PEER`. Rerun the core
 completion containment tests after enabling the relay.
 
-## 13. Remove Peer Relay and return to canonical transport
+## 13. Remove Peer Relay and return to core transport
 
 Removal is intentionally simple and reversible.
 
@@ -657,7 +657,7 @@ verify the node no longer advertises a Peer Relay service.
 Delete only the `tailscale.com/cap/relay` grant added by this extension from each
 compartment policy.
 
-Do not delete the canonical S3 proxy/RHEL access grants.
+Do not delete the core S3 proxy/RHEL access grants.
 
 ### 13.3 Remove every source-restricted UDP/40000 rule
 
@@ -763,7 +763,7 @@ T-12 update:
 
 When removing the extension, mark `EXT-PEER-RELAY DISABLED`, remove PR-01 after the
 listener, grant and **all source-restricted provider/firewalld rules** are gone, and restore
-the canonical T-12 transport text.
+the core T-12 transport text.
 
 ---
 
@@ -779,19 +779,19 @@ Keep Peer Relay only when this sentence is true and supported by measurements:
 > materially improves measured transfer time.
 
 If the campus egress set is broad, unstable, shared beyond the accepted threat boundary,
-or requires ASN/ISP/Internet-wide firewall rules, keep the canonical direct -> DERP
+or requires ASN/ISP/Internet-wide firewall rules, keep the core direct -> DERP
 baseline. Otherwise, Peer Relay may be retained only with the source-restricted rules
 documented by this extension.
 
 ## HARDENING COMPATIBILITY DELTA
 
-This extension is subordinate to the canonical master guide's
+This extension is subordinate to the core master guide's
 `PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
 
 Rules:
 
 ```text
-do not broaden Fedora's canonical single-source backup binding
+do not broaden Fedora's core single-source backup binding
 do not replace rootless Podman with rootful/privileged Podman
 do not disable SELinux labeling to fix an extension error
 do not apply a generic SystemCallFilter to network/control-plane services without tests
@@ -805,7 +805,7 @@ extension's authorization, deadline, rollback, or isolation invariants.
 ### Peer Relay hardening note
 
 Peer Relay is a Tailscale transport service with deliberate UDP/network requirements.
-Do not paste the canonical empty `CapabilityBoundingSet=` profile onto the Tailscale
+Do not paste the core empty `CapabilityBoundingSet=` profile onto the Tailscale
 relay service. Keep the source-restricted UDP firewall rules and Tailscale capability
 policy as the primary listener boundaries, then inspect the effective vendor/generated
 unit after every Tailscale upgrade.
@@ -815,7 +815,7 @@ The relay extension must not weaken `vault-device-coordinator.service`,
 work. If enabling Peer Relay requires such a change, remove Peer Relay and return to
 managed DERP while investigating.
 
-### Canonical relay-host platform
+### Core relay-host platform
 
 `vault-pc` and `vault-phone` are RHEL 9 BYOL/BYOI hosts with SELinux Enforcing and
 firewalld. Peer Relay does not change the RHEL major-version or BYOI architecture

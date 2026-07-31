@@ -4,10 +4,10 @@
 > [!IMPORTANT]
 > **Status: MANDATORY BUT PENDING INTEGRATION**
 > 
-> The concept outlined in this document runs in parallel with many architectural decisions in the project and is **mandatory** for the healthy functioning of the security infrastructure. However, it is **not yet completed** and therefore has not been fully integrated into the Canonical master file.
+> The concept outlined in this document runs in parallel with many architectural decisions in the project and is **mandatory** for the healthy functioning of the security infrastructure. However, it is **not yet completed** and therefore has not been fully integrated into the Core master file.
 > 
 > **Integration Requirements:**
-> 1. **System Definition:** The detection and notification systems must be well-defined within the project before full integration into the canonical master guide.
+> 1. **System Definition:** The detection and notification systems must be well-defined within the project before full integration into the core master guide.
 > 2. **Cross-Isolation Verification:** Before this extension can be merged into the master file, it must be strictly verified that:
 >    - The channel sending notifications to the **PC** is strictly inaccessible by any actor on the **Phone**.
 >    - The channel sending notifications to the **Phone** is strictly inaccessible by any actor on the **PC**.

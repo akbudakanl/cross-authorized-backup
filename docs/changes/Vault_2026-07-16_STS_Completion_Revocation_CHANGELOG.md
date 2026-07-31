@@ -2,7 +2,7 @@
 
 ## 1. Reason for this revision
 
-The previous canonical S3 design correctly required two live primary-device phases,
+The previous core S3 design correctly required two live primary-device phases,
 two independent VPS Ed25519 signatures, the requesting device's SSO/MFA, and an unused
 device/day slot before fresh STS issuance. However, after legitimate issuance, local
 `DONE s3` remained cooperative. A compromised source endpoint could suppress local
@@ -158,7 +158,7 @@ view. The persisted signed one-hour hard deadline remains the final ceiling.
 ## 7. Documents changed
 
 ```text
-Vault_Zero_Trust_Master_Guide_CANONICAL.md
+Vault_Zero_Trust_Master_Guide_CORE.md
 Vault_Threat_Model_and_Risk_Register.md
 Vault_Post_Install_Detection_and_Credential_Custody.md
 Vault_Extension_Headscale_Control_Plane.md
@@ -167,7 +167,7 @@ Vault_Device_Retirement_and_Migration_Runbook.md
 Vault_Deployment_Time_Revalidation_Checklist.md
 ```
 
-Reviewed and intentionally unchanged because they do not redefine canonical S3 STS
+Reviewed and intentionally unchanged because they do not redefine core S3 STS
 completion semantics:
 
 ```text
@@ -198,7 +198,7 @@ deadline, expired, and greater-than-90-second close payloads.
 
 ## 9. Deployment rule
 
-Do not partially apply this revision. The canonical claim that successful S3 completion
+Do not partially apply this revision. The core claim that successful S3 completion
 is contained before original STS expiration assumes all of the following are deployed and
 tested together:
 
@@ -264,7 +264,7 @@ Vault_Threat_Model_and_Risk_Register.md
 Vault_2026-07-16_STS_Completion_Revocation_CHANGELOG.md
 ```
 
-The canonical master guide and topology extensions are intentionally unchanged. The
+The core master guide and topology extensions are intentionally unchanged. The
 mandatory detection guide applies the structured coordinator logging patch during the
 post-install production-entry stage.
 

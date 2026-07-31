@@ -1,17 +1,17 @@
-# THE VAULT: ZERO TRUST MASTER GUIDE — CANONICAL BASELINE
+# THE VAULT: ZERO TRUST MASTER GUIDE — CORE BASELINE
 # OUTBOUND-ONLY • NO-PRUNE • TAILSCALE + TAILNET LOCK • TAILSCALE-HOSTED DERP • RHEL 9 VPS HOSTS
 ================================================================================
 
 ## PART 1: ARCHITECTURE, PRIMARY-DEVICE HARDENING, AND BACKUP DESTINATIONS
 ================================================================================
 
-> **Canonical baseline.** This is the one master installation guide. It is deliberately
+> **Core baseline.** This is the one master installation guide. It is deliberately
 > written for a reader starting from zero: install order, files, commands, complete
 > services, complete helper code, day-zero tests, failure behavior, recovery, and daily
 > operator steps are documented here. Do not use the old 16-guide matrix as a second
 > source of truth.
 >
-> **Canonical server-platform decision.** `vault-pc`, `vault-phone`, and the backup
+> **Core server-platform decision.** `vault-pc`, `vault-phone`, and the backup
 > receiver are RHEL 9 systems with SELinux Enforcing. The two OCI Free Tier VPSs use the
 > operator's Red Hat subscriptions in a BYOL/BYOI model. Use the current active RHEL 9
 > minor release; at the time of this revision that is RHEL 9.8. Do not permanently pin
@@ -19,7 +19,7 @@
 >
 > OCI Always Free may be either AMD `VM.Standard.E2.1.Micro` (`x86_64`) or Ampere
 > `VM.Standard.A1.Flex` (`aarch64`). The imported RHEL image architecture must match the
-> selected shape. RHEL 10 is not the canonical VPS baseline because its x86 baseline is
+> selected shape. RHEL 10 is not the core VPS baseline because its x86 baseline is
 > stricter and this project prefers one RHEL 9 common denominator across older hardware
 > and OCI Free Tier. A later RHEL 10 migration requires a fresh compatibility review.
 >
@@ -41,7 +41,7 @@
 > break-glass/admin/runtime credential-custody standard assumed by the production threat
 > model.
 
-### Why Tailscale is the canonical control plane
+### Why Tailscale is the core control plane
 
 The baseline uses **two independent Tailscale tailnets with Tailnet Lock enabled** and
 Tailscale-hosted DERP as the relay fallback. The security reason is specific: Tailnet
@@ -136,7 +136,7 @@ server-side and independent of a cooperative endpoint.
 4. Phone does the symmetric authentication in its own tailnet.
 5. PC presents its device-specific phase token to vault-pc.
 6. Phone presents its independent phase token to vault-phone.
-7. The two VPS coordinators create one canonical S3_PC payload.
+7. The two VPS coordinators create one core S3_PC payload.
 8. vault-pc signs it with the PC-VPS Ed25519 private key.
 9. vault-phone signs the exact same payload with the Phone-VPS Ed25519 private key.
 10. PC performs AWS IAM Identity Center SSO/MFA and invokes only the PC Lambda gate.
@@ -368,7 +368,7 @@ Phone → vault-phone VPS
 
 Each VPS stores only its own device phase-token verifier and its own Ed25519 signing
 private key. The two VPSs are joined by a dedicated point-to-point `wg-cross` tunnel.
-When the PC requests an `s3` or `rhel` ceremony, `vault-pc` creates a fresh canonical
+When the PC requests an `s3` or `rhel` ceremony, `vault-pc` creates a fresh core
 payload and signs it. `vault-phone` signs the **same bytes** only while the phone has a
 live authenticated socket in the same phase. The reverse rule applies to phone
 ceremonies.
@@ -376,7 +376,7 @@ ceremonies.
 The resulting proof bundle contains:
 
 ```text
-canonical ceremony payload
+core ceremony payload
 + PC-VPS Ed25519 signature
 + Phone-VPS Ed25519 signature
 ```
@@ -528,7 +528,7 @@ remain on their owning VPS only.
 
 ### Two-compartment VPS infrastructure invariant — **2 VPS required**
 
-The canonical baseline uses two independent security compartments:
+The core baseline uses two independent security compartments:
 
 ```text
 vault-pc
@@ -608,7 +608,7 @@ Fresh RHEL authorization:
 
 Direct Tailscale transport and Tailscale-hosted DERP are transport mechanisms only. Managed
 DERP relays encrypted WireGuard packets and does not create either Vault VPS Ed25519
-private key. The canonical baseline runs no public relay listener on either Vault VPS.
+private key. The core baseline runs no public relay listener on either Vault VPS.
 If the Peer Relay extension is later enabled, the added UDP/40000 surface is assessed
 there and the opposite-VPS signature requirement remains unchanged.
 
@@ -1843,7 +1843,7 @@ export SLOT_TABLE="VaultDailyIssuanceSlots"
 
 # These are the stable public source addresses that AWS S3 actually observes for
 # outbound TCP connections created by each compartment's exact-host CONNECT proxy.
-# The canonical Tailscale/managed-DERP baseline normally uses one stable public IPv4
+# The core Tailscale/managed-DERP baseline normally uses one stable public IPv4
 # per VPS. It is the address that the VPS actually uses for outbound S3 TCP connections.
 # Do not guess from a provider console label. On each VPS, before creating the IAM
 # policies below, run:
@@ -2837,7 +2837,7 @@ aws s3api get-bucket-notification-configuration --bucket "$PHONE_BUCKET"
 ```
 
 **Warning:** `put-bucket-notification-configuration` replaces the bucket's notification
-configuration. In this canonical build these two Vault notifications are the intended
+configuration. In this core build these two Vault notifications are the intended
 configuration. If the bucket already has unrelated notifications, merge them into the
 JSON deliberately instead of overwriting them blindly.
 
@@ -3622,9 +3622,9 @@ go version
 python3 --version
 ```
 
-#### 23.0.3 Establish the canonical RHEL firewalld boundary
+#### 23.0.3 Establish the core RHEL firewalld boundary
 
-Use **firewalld as the canonical host-firewall owner** on the two RHEL VPSs. Do not
+Use **firewalld as the core host-firewall owner** on the two RHEL VPSs. Do not
 maintain a parallel `/etc/nftables.conf` that flushes firewalld's nftables ruleset.
 
 Keep the provider console or current SSH recovery session open.
@@ -3809,7 +3809,7 @@ UDP/51830 -> opposite Vault VPS /32 only
 ```
 
 Do not open UDP/40000, a self-hosted DERP listener, Headscale HTTPS, or a public backup
-listener in the canonical Tailscale baseline.
+listener in the core Tailscale baseline.
 
 Tailscale still needs outbound control/DERP/STUN connectivity and the exact-host S3 proxy
 needs outbound S3 HTTPS. Do not invent a tiny static destination-IP allowlist for those
@@ -4132,7 +4132,7 @@ There must be no public `0.0.0.0:8889`, `0.0.0.0:8890`, or `0.0.0.0:8891` listen
 
 Enroll the PC in the PC Tailscale tailnet and Phone in the Phone Tailscale tailnet as shown in Section 24. Start the phase helper on both devices for a disposable `s3`
 ceremony. The two local coordinators should each log that their own device joined and
-that the opposite coordinator signed the exact canonical payload.
+that the opposite coordinator signed the exact core payload.
 
 On each VPS:
 
@@ -5689,7 +5689,7 @@ ps -eo user,group,pid,comm,args | grep vault-device-coordinator | grep -v grep
 
 Expected service identity: `vaultcoord:vaultcoord`.
 
-The coordinator creates one canonical payload and signs it locally. The opposite
+The coordinator creates one core payload and signs it locally. The opposite
 coordinator signs only the same payload and only if its own device has joined the same
 phase. Exact raw payload bytes are preserved in the bundle; AWS and RHEL verify those
 same bytes.
@@ -6301,7 +6301,7 @@ veto.
 
 ### 23.8 Firewall invariant
 
-Canonical Tailscale/managed-DERP profile:
+Core Tailscale/managed-DERP profile:
 
 ```text
 PUBLIC INPUT TO EACH VPS
@@ -6730,7 +6730,7 @@ three Vault nodes and no cross-compartment node.
 
 #### 24.10 Reconcile the Tailscale address contract before rebuilding services
 
-The canonical baseline pins:
+The core baseline pins:
 
 ```text
 own VPS = VPS_TS_IP
@@ -11426,7 +11426,7 @@ Only after this matrix passes should the folders contain irreplaceable productio
 
 > **Mandatory production-entry hardening.**
 >
-> Apply this part after the canonical services are installed and individually functional,
+> Apply this part after the core services are installed and individually functional,
 > but before the final production acceptance matrix and before storing irreplaceable data.
 > This stage is deliberately service-specific. Do not paste one universal
 > `SystemCallFilter=` or a generic "maximum hardening" block over Tailscale, Podman,
@@ -11549,7 +11549,7 @@ BindPaths=%h/.aws
 WantedBy=default.target
 ```
 
-Why `.aws` is re-exposed read-write: the canonical PC workflow performs IAM Identity
+Why `.aws` is re-exposed read-write: the core PC workflow performs IAM Identity
 Center login and later `aws sso logout`; the AWS CLI needs its local SSO/config/cache
 state. This does not change the restic source argument. In the script,
 `SOURCE_DIR="$HOME/Vault_PC_Ciphertext"` remains the only source passed to
@@ -11619,10 +11619,10 @@ canary remains unchanged.
 
 ## H3. RHEL 9 Vault VPSs — dedicated users, DAC, and systemd confinement
 
-The canonical `vault-pc` and `vault-phone` hosts are RHEL 9 BYOL/BYOI systems with
+The core `vault-pc` and `vault-phone` hosts are RHEL 9 BYOL/BYOI systems with
 SELinux **Enforcing**.
 
-The canonical baseline does **not** require the operator to write, generate, review, or
+The core baseline does **not** require the operator to write, generate, review, or
 install a custom SELinux policy module for the Vault coordinator, S3 proxy, expiry
 helper, or Headscale. These are custom native services, and this guide deliberately does
 not make SELinux policy engineering a production prerequisite.
@@ -11785,7 +11785,7 @@ Enforcing
 ```
 
 It is acceptable for a custom native Vault daemon to appear in the RHEL targeted
-policy's ordinary unconfined service domain. The canonical guide does **not** claim that
+policy's ordinary unconfined service domain. The core guide does **not** claim that
 SELinux provides an additional per-daemon MAC boundary for these native custom
 services.
 
@@ -11796,7 +11796,7 @@ ps -eZ | grep vault-device-coordinator || true
 ps -eZ | grep vault-s3-proxy || true
 ```
 
-Do not perform any of the following as part of the canonical install:
+Do not perform any of the following as part of the core install:
 
 ```text
 sepolicy generate --init for Vault custom daemons
@@ -11846,7 +11846,7 @@ authorization and hard-deadline behavior still work
 ```
 
 The desired result is not "a custom SELinux domain exists." No such custom-domain claim
-is part of the canonical threat model.
+is part of the core threat model.
 
 ### H3.5 Platform/shape drift is a security review event
 
@@ -11879,7 +11879,7 @@ upgrade as an ordinary unattended package update.
 
 ### H4.1 Rootless rest-server Podman baseline is mandatory
 
-The canonical two backend units already use rootless service identities:
+The core two backend units already use rootless service identities:
 
 ```text
 vault-rhel-pc-rest-server.service    User=resticpc
@@ -11919,7 +11919,7 @@ Expected:
 Enforcing
 ```
 
-The `:Z` labels in the canonical bind mounts are retained. Do not work around an AVC by
+The `:Z` labels in the core bind mounts are retained. Do not work around an AVC by
 adding `--security-opt label=disable`. Inspect and correct the exact label/path problem.
 
 ### H4.1.1 Advanced Hardening: Kata Containers MicroVM Isolation (Path A)
@@ -12278,7 +12278,7 @@ change -> verify -> negative-test -> new-baseline sequence.
 
 ## Section 25 - Restricted Networks: Direct → Tailscale-hosted DERP Baseline
 
-The canonical transport decision is deliberately simple:
+The core transport decision is deliberately simple:
 
 ```text
 direct UDP/WireGuard if available

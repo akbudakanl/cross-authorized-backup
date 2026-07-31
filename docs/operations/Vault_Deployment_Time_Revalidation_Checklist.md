@@ -2,7 +2,7 @@
 
 **Document type:** pre-deployment revalidation gate  
 **Architecture freeze reference date:** 2026-07-15  
-**Applies to:** the authoritative Vault canonical guide and its optional extensions  
+**Applies to:** the authoritative Vault core guide and its optional extensions  
 **Purpose:** verify external product/platform assumptions after the project has been shelved for weeks or months
 
 ---
@@ -12,7 +12,7 @@
 The Vault architecture can remain logically valid while Tailscale, Headscale, AWS,
 restic, RHEL, OCI, Podman, Caddy, or their APIs change.
 
-Treat the canonical guide as an **architecture freeze, not a version freeze**.
+Treat the core guide as an **architecture freeze, not a version freeze**.
 
 Before deploying after a long shelving period:
 
@@ -43,7 +43,7 @@ the real deployment environment invalidates a transport/capacity/session assumpt
 
 ---
 
-# 1. Canonical Transport Principle: No Operator-Managed Public Relay Listener
+# 1. Core Transport Principle: No Operator-Managed Public Relay Listener
 
 The operator's explicit transport preference is:
 
@@ -51,7 +51,7 @@ The operator's explicit transport preference is:
 > listener to the campus/local network or the public Internet merely to improve transfer
 > performance.
 
-The canonical baseline therefore does **not** enable:
+The core baseline therefore does **not** enable:
 
 ```text
 UDP/40000 Peer Relay listener
@@ -64,7 +64,7 @@ Vault SSH listener on a primary device
 
 Primary devices remain source-only.
 
-The existing local inbound controls remain canonical:
+The existing local inbound controls remain core:
 
 ```text
 Fedora:
@@ -155,7 +155,7 @@ Tailscale port and is **not** required for Tailscale-hosted DERP.
 If a direct connection cannot be established and no usable Peer Relay is configured,
 Tailscale falls back to a DERP relay.
 
-In the canonical Vault baseline:
+In the core Vault baseline:
 
 ```text
 direct, if NAT traversal actually succeeds
@@ -163,7 +163,7 @@ direct, if NAT traversal actually succeeds
 Tailscale-hosted DERP
 ```
 
-There is no intermediate Peer Relay because the canonical deployment does not configure
+There is no intermediate Peer Relay because the core deployment does not configure
 one.
 
 **Important wording:**
@@ -234,7 +234,7 @@ slow representative throughput
 reconnects/path changes
 ```
 
-Expected canonical result:
+Expected core result:
 
 ```text
 Peer Relay is not configured.
@@ -249,7 +249,7 @@ peer-relay(...)
 stop and investigate.
 
 That result means the deployed tailnet has relay configuration/capability that is not
-part of the canonical baseline.
+part of the core baseline.
 
 If the real path is consistently:
 
@@ -263,7 +263,7 @@ Do not modify the guide to claim "forced DERP-only" unless Tailscale officially
 documents a supported production mechanism that enforces that behavior on every required
 client platform.
 
-The canonical project may **expect** DERP because of real network behavior without
+The core project may **expect** DERP because of real network behavior without
 claiming that the Tailscale client was configured into a vendor-supported DERP-only
 mode.
 
@@ -273,7 +273,7 @@ mode.
 
 Use precise wording.
 
-The canonical security objective is:
+The core security objective is:
 
 ```text
 no operator-managed public Vault application/backup/relay service on the primary devices
@@ -310,7 +310,7 @@ security mode.
 
 ## 2.1 Baseline assumption
 
-The canonical architecture assumes one signed global Vault session ceiling:
+The core architecture assumes one signed global Vault session ceiling:
 
 ```text
 60 minutes
@@ -415,7 +415,7 @@ operationally safe.
 
 The one-hour limit is embedded in multiple independent enforcement points.
 
-Search the authoritative canonical guide/source tree for:
+Search the authoritative core guide/source tree for:
 
 ```bash
 grep -RInE \
@@ -427,7 +427,7 @@ At minimum, review the following.
 
 ### A. VPS coordinator lifetime
 
-Canonical Go coordinator:
+Core Go coordinator:
 
 ```go
 sessionLifetime = time.Hour
@@ -452,7 +452,7 @@ A VPS restart must not extend an existing persisted deadline.
 
 ### B. AWS Lambda signed-deadline validation
 
-The canonical S3 gate validates that:
+The core S3 gate validates that:
 
 ```text
 session_expires_at - issued_at <= 3_600_000 milliseconds
@@ -472,7 +472,7 @@ Those are separate freshness/anti-replay controls.
 
 ### C. AWS backup-role maximum session duration
 
-Canonical roles use:
+Core roles use:
 
 ```bash
 --max-session-duration 3600
@@ -487,7 +487,7 @@ Vault-Phone-S3-BackupRole
 
 ### D. AWS Lambda STS request duration
 
-Canonical S3 gate requests:
+Core S3 gate requests:
 
 ```javascript
 DurationSeconds: 3600
@@ -614,7 +614,7 @@ If the signed ceiling changes, update that decision threshold.
 
 ## 2.5 CRITICAL AWS constraint: current S3 credential path is capped by role chaining
 
-The canonical AWS path is conceptually:
+The core AWS path is conceptually:
 
 ```text
 AWS Lambda service
@@ -639,7 +639,7 @@ operation, regardless of a larger maximum session duration configured on the tar
 
 Therefore:
 
-> Under the current canonical Lambda-execution-role → backup-role `AssumeRole` design,
+> Under the current core Lambda-execution-role → backup-role `AssumeRole` design,
 > increasing `3600` to `7200` is not a valid two-hour S3 migration.
 
 Treat any required S3 session longer than one hour as:
@@ -807,7 +807,7 @@ Current result:
 
 ```text
 NO CHANGE
-Keep Tailscale + Tailnet Lock as canonical.
+Keep Tailscale + Tailnet Lock as core.
 ```
 
 Recheck at deployment time.
@@ -821,7 +821,7 @@ Question:
 > Can the exact device-expiry operation now be authorized without broad
 > `devices:core` write scope?
 
-The canonical expiry helper uses the Tailscale API operation:
+The core expiry helper uses the Tailscale API operation:
 
 ```text
 POST /api/v2/device/:deviceID/expire
@@ -882,7 +882,7 @@ Current result:
 
 ```text
 NO CHANGE
-The canonical devices:core residual-risk statement remains valid.
+The core devices:core residual-risk statement remains valid.
 ```
 
 Recheck at deployment time.
@@ -1002,7 +1002,7 @@ RHEL-Phone namespace Tailscale version
 Headscale version, only if the extension is selected
 ```
 
-For the canonical Tailscale deployment:
+For the core Tailscale deployment:
 
 ```text
 [ ] Tailnet Lock supported by every required client
@@ -1064,7 +1064,7 @@ breaking-change warnings
 Deep Archive restore caveats
 ```
 
-## 8.1 Canonical rule
+## 8.1 Core rule
 
 Do not treat successful cold upload/copy as proof of restore capability.
 
@@ -1134,7 +1134,7 @@ Keep S3 cold restore as a separate tested recovery procedure.
 
 # 9. AWS Lambda Runtime Revalidation
 
-The canonical guide currently creates the two S3 gates with:
+The core guide currently creates the two S3 gates with:
 
 ```text
 nodejs22.x
@@ -1146,7 +1146,7 @@ Before deployment:
 [ ] confirm nodejs22.x is still supported in the selected AWS region
 [ ] record AWS deprecation date
 [ ] check whether a newer supported Node.js runtime is now preferable
-[ ] rebuild the ZIP from the canonical source
+[ ] rebuild the ZIP from the core source
 [ ] reinstall exact dependencies from package-lock.json
 [ ] run node --check index.mjs
 [ ] record package-lock.json SHA-256
@@ -1221,7 +1221,7 @@ Test first.
 AWS currently recommends packaging the SDK clients used by the function rather than
 depending only on the runtime-included SDK.
 
-The canonical ZIP already follows that direction.
+The core ZIP already follows that direction.
 
 ---
 
@@ -1297,7 +1297,7 @@ Expected:
 
 ## 10.3 Successful-completion revocation and peer-close revalidation
 
-The canonical 2026-07-16 S3 close path depends on several external/lifecycle assumptions
+The core 2026-07-16 S3 close path depends on several external/lifecycle assumptions
 that must be revalidated together. Check current official AWS documentation and the
 reviewed restic source for the deployed version.
 
@@ -1385,7 +1385,7 @@ pricing in the selected region
 
 Do not hard-code cost assumptions from the architecture-freeze date.
 
-The canonical security model must still distinguish:
+The core security model must still distinguish:
 
 ```text
 backup authorization
@@ -1412,7 +1412,7 @@ merely because the cold-storage workflow becomes easier.
 
 # 12. RHEL 9 Revalidation
 
-The canonical guide is a RHEL 9 guide.
+The core guide is a RHEL 9 guide.
 
 Before deployment, check:
 
@@ -1436,7 +1436,7 @@ RHEL 10 migration is:
 SECURITY REVIEW REQUIRED
 ```
 
-because the canonical guide was reviewed against RHEL 9 service, package, and platform
+because the core guide was reviewed against RHEL 9 service, package, and platform
 assumptions.
 
 ### Evidence snapshot — 2026-07-15
@@ -1447,7 +1447,7 @@ Red Hat official release-date documentation currently lists:
 RHEL 9.8 GA: 2026-05-19
 ```
 
-The canonical guide's "current active RHEL 9 minor = 9.8" wording remains correct at the
+The core guide's "current active RHEL 9 minor = 9.8" wording remains correct at the
 freeze date.
 
 RHEL 9.8 is also listed as an eligible even-numbered minor in Red Hat's current extended
@@ -1533,7 +1533,7 @@ Recheck this warning immediately before an A1 deployment.
 
 # 14. Tailscale Package and Repository Revalidation on RHEL
 
-Before using the canonical install commands:
+Before using the core install commands:
 
 ```text
 [ ] open current official Tailscale Linux/RHEL installation documentation
@@ -1581,7 +1581,7 @@ private-repos behavior
 htpasswd behavior
 ```
 
-The canonical guide should not deploy a floating image tag without recording the tested
+The core guide should not deploy a floating image tag without recording the tested
 digest/version.
 
 Run:
@@ -1705,7 +1705,7 @@ OCI NSG/security-list rules
 public listeners
 ```
 
-For the canonical no-Peer-Relay baseline, confirm:
+For the core no-Peer-Relay baseline, confirm:
 
 ```text
 no UDP/40000 allow rule
@@ -1834,7 +1834,7 @@ Phone exact S3 hostname
 current S3 regional endpoint behavior
 ```
 
-The canonical S3 proxy must still allow only the reviewed exact hostname and TCP/443.
+The core S3 proxy must still allow only the reviewed exact hostname and TCP/443.
 
 If the selected AWS SDK/restic behavior starts requiring additional AWS hosts:
 
@@ -1939,7 +1939,7 @@ After all deployment-time tests pass, create a deployment manifest containing:
 
 ```text
 date
-canonical guide SHA-256
+core guide SHA-256
 threat model SHA-256
 detection/custody guide SHA-256
 enabled extension SHA-256 values
@@ -1993,7 +1993,7 @@ TAILSCALE / HEADSCALE
 [ ] Headscale Tailnet Lock status has been rechecked.
 [ ] Tailscale devices:core expiry scope has been rechecked.
 [ ] WIF issuer/subject/audience/custom-claim rules pass negative tests.
-[ ] Tailnet Lock is enabled in both canonical tailnets.
+[ ] Tailnet Lock is enabled in both core tailnets.
 [ ] Exact expected primary NodeIDs are recorded.
 
 RESTIC / COLD STORAGE
@@ -2036,7 +2036,7 @@ DETECTION
 [ ] Daily-slot alerting passes.
 
 DOCUMENT CONTROL
-[ ] Canonical guide and enabled extension hashes are recorded.
+[ ] Core guide and enabled extension hashes are recorded.
 [ ] Threat model matches deployed session duration.
 [ ] No obsolete guide is being used as a second source of truth.
 ```
@@ -2072,8 +2072,8 @@ Tailscale transport:
   configured Peer Relay used if direct fails and relay is available
   DERP used when direct fails and no usable Peer Relay is available
   Peer Relay requires explicit relay-device configuration and an accessible UDP port
-  canonical Vault Peer Relay extension uses UDP/40000
-  canonical baseline does not configure Peer Relay
+  core Vault Peer Relay extension uses UDP/40000
+  core baseline does not configure Peer Relay
 
 Headscale:
   latest stable observed: v0.29.2
@@ -2179,7 +2179,7 @@ When reviewing the Vault months later, do not ask only:
 Ask:
 
 ```text
-Which canonical security assumptions depended on external product behavior?
+Which core security assumptions depended on external product behavior?
 Which of those behaviors changed?
 Did a broader credential scope become narrower?
 Did a previously missing cryptographic control become available?

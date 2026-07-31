@@ -4,7 +4,7 @@ This document summarizes the architectural security changes applied to the Vault
 
 ## Changes Made
 
-### 1. `Vault_Zero_Trust_Master_Guide_CANONICAL.md`
+### 1. `Vault_Zero_Trust_Master_Guide_CORE.md`
 - **Kata Sandbox Enforcement:** Added a new sub-section under `H4.1.1` detailing the requirement to use `--sandbox=namespace` (or chroot) in Kata's `virtio_fs_extra_args`. We also recommended restricting `xattr` passthrough to shrink the system call attack surface.
 - **Caddy Read-Only Mounts:** Updated the Caddy Podman section to emphasize the `:ro` (read-only) flag on its configuration and certificate mounts. Added an explanation detailing how this neutralizes the majority of `virtiofsd` write-primitive vulnerabilities.
 - **Rest-Server Contrast:** Explicitly documented why the `rest-server` cannot use this `:ro` mitigation (since it must write backups to disk), reinforcing the necessity of separating the two services.
