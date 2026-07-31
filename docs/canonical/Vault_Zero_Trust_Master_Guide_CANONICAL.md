@@ -5580,10 +5580,9 @@ Systemd unit:
 
 ```ini
 [Unit]
-Description=Vault device compartment coordinator
-After=network-online.target tailscaled.service wg-quick@wg-cross.service
+Description=Vault device compartment coordinator (Process B - Verifier)
+After=network-online.target tailscaled.service
 Wants=network-online.target
-Requires=wg-quick@wg-cross.service
 
 [Service]
 Type=simple
@@ -5599,6 +5598,38 @@ ProtectSystem=strict
 ProtectHome=true
 ReadWritePaths=/var/lib/vault-device
 ReadOnlyPaths=/etc/vault-device
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Create `/etc/systemd/system/vault-device-listener.service` (Process A - gVisor wg-cross tunnel):
+
+```ini
+[Unit]
+Description=Vault device wg-cross listener (Process A)
+After=network-online.target
+Requires=vault-device-coordinator.service
+
+[Service]
+Type=simple
+User=vaultcoord
+Group=vaultcoord
+ExecStartPre=-/usr/bin/podman rm -f vault-device-listener
+ExecStart=/usr/bin/podman run --rm \
+  --runtime=runsc \
+  --name vault-device-listener \
+  --read-only \
+  --cap-drop=all \
+  --security-opt=no-new-privileges \
+  --memory=64m \
+  --pids-limit=20 \
+  -p 8891:8891/udp \
+  -v /var/lib/vault-device/coordinator.sock:/socket:rw \
+  localhost/vault-listener-image:latest \
+  /usr/local/sbin/vault-device-coordinator -listener
+ExecStop=/usr/bin/podman stop -t 2 vault-device-listener
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
