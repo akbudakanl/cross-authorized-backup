@@ -9202,28 +9202,35 @@ Interpretation:
 
 Do not automatically delete snapshots in this no-prune variant.
 
-### 19.1 Boot-Time Global Disk Usage Guard
+### 19.1 Permanent Archive Mode (Capacity Guard)
 
-To prevent system instability and ensure a hard limit on capacity, a strict pre-boot check is enforced for the RHEL-based backup server. When the total disk usage of the RHEL server (including system files, other applications, and everything else) reaches or exceeds 85%, all backup operations are strictly prohibited.
+To prevent system instability and ensure a strict ceiling on data ingestion, a continuous background check is enforced for the RHEL-based backup server. When the total disk usage reaches or exceeds 85%, the system deliberately transitions into a **Permanent Archive (Read-Only) Mode**. This is an intentional "End of Life" phase for the server's data ingestion capabilities, not a recoverable error state.
 
-**Boot-Time Verification Workflow:**
-1. **Startup Check:** The disk usage ratio is evaluated every time the system boots, strictly *before* the backup services (rest-server Podman capsules and Caddy systemd services) are allowed to start.
-2. **Threshold Exceeded (>=85%):** If the calculated total disk usage is 85% or higher:
-   - The Caddy (systemd) and rest-server (Podman/Kata) services will **not** be started.
-   - No further action is required to enforce read-only behavior: a service that is never
-     started has no write path. See H4.1.1 §3 for the current (`.img`-file based) storage
-     model and the `chattr +i` host-level protection applied independently as defense-in-depth.
-3. **Mid-Transfer Tolerance:** Because this guard operates exclusively during the device startup sequence, if the total disk usage is 84% before a backup starts and grows to 90% during the transfer, that specific ongoing transfer will not be interrupted. The lock-down changes will take permanent effect the next day when the RHEL server is booted again and the boot-time check detects the >=85% state.
+**Continuous Verification & Transition Workflow:**
+1. **Runtime Monitoring:** The disk usage ratio is evaluated every 1 minute after the system starts.
+2. **Threshold Exceeded (>=85%) - Archive Lock:** If total disk usage reaches 85% or higher:
+   - The write-authorized MicroVM (`vault-rhel-pc-rest-server.service`) is **stopped immediately**.
+   - The underlying ext4 `.img` files used by Firecracker are physically locked via `chattr +i` on the host side.
+   - A physical lock file (e.g., `/etc/vault-rhel/capacity.lock`) is created on the host.
+   - The 1-minute monitoring loop terminates itself permanently.
+   - **Crucially**, the host-side service configuration for the MicroVM is permanently rewritten (e.g., dynamically altering the Podman command to change the block mount from `:Z` to `:ro,Z`). The original read-write configuration is irreversibly destroyed ("Burn the bridge" concept).
+   - The exact same MicroVM service is then restarted. It now boots exclusively in a **Read-Only** state, physically restricted at the hypervisor level.
 
-**Client Experience:**
-When this capacity lockdown is active, attempting to send a backup from the PC (Terminal) or Phone (Termux) will result in a `"rejected"` message displayed on the client screen, as the remote receiver services remain intentionally offline.
+**Statefulness and Zero-Trust Prune Policy:**
+- Once the `capacity.lock` file is created, the RHEL server will *always* boot the MicroVM directly into its new permanent Read-Only state. 
+- In adherence to the strict Zero-Trust philosophy, the `--append-only` constraint is **never** lifted, and the `restic prune` command is **never** executed on the RHEL server to free up space. The 85% disk saturation is accepted as a permanent state.
+- **Disposable MicroVM Security:** The MicroVMs in this architecture are perfectly disposable. Whenever a CVE is disclosed or a transition occurs (like shifting to the RO fallback), restarting the service from a newly pulled container image guarantees a 100% clean, freshly built VM, incinerating any potential malware trapped in the previous instance's RAM.
+
+**Client Experience in Archive Mode:**
+- Attempting to send a new backup from the client will result in a standard HTTP 500/403 error, as the backend filesystem is physically read-only.
+- Conversely, operations that require only reading data—such as restoring files to a new computer or executing `restic check --read-data` for bit-rot verification—will function **flawlessly** over the network, as the read-only HTTP server continues to serve the encrypted pack files exactly as before.
 
 **Physical Console Verification:**
-To confirm whether the `"rejected"` status is caused by this disk usage guard, an operator with physical access to the RHEL server console can type the command `usage` into the terminal:
+To confirm whether the server has transitioned into Permanent Archive Mode, an operator with physical access to the RHEL server console can type the command `usage` into the terminal:
 - The terminal will evaluate and display the current disk usage ratio.
 - If the value is `<85%`, it will output only the disk usage percentage.
-- If the value is `>=85%`, it will output the percentage accompanied by the following explicit warning:
-  `"Backup operations have been stopped because disk usage exceeded 85%."`
+- If the value is `>=85%`, it will output the percentage accompanied by the explicit status:
+  `"Permanent Archive Mode Active: Disk usage exceeded 85%. Backups rejected; Restores permitted."`
 
 ---
 
