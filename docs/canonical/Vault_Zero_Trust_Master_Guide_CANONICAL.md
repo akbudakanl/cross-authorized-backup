@@ -4050,7 +4050,7 @@ symmetric rule.
 
 > [!IMPORTANT]
 > **Lateral Movement Hardening (Process A/B & gVisor):** To eliminate the risk of parsing-related RCEs leading to lateral movement, the `vault-device-coordinator` daemon is strictly separated into two processes:
-> - **Process A (Listener)**: An unprivileged listener running inside a **gVisor (`runsc` systrap)** sandbox. It receives raw UDP packets from `wg-cross` and passes them without parsing to a local Unix socket.
+> - **Process A (Listener)**: An unprivileged listener running inside a **gVisor (`runsc` systrap)** sandbox. Instead of relying on the in-kernel WireGuard which carries kernel-level RCE risks, this sandbox hosts a userspace `wireguard-go` implementation to terminate the `wg-cross` tunnel. It receives decrypted raw packets and passes them without parsing to a local Unix socket.
 > - **Process B (Verifier)**: Reads from the socket, verifies the Ed25519 signature directly on the raw bytes, and acts. It uses purely manual, bounds-checked fixed-length struct parsing in Go (no JSON/Protobuf/FlatBuffers) to eliminate parsing logic flaws.
 
 On each VPS, first install gVisor (if nested virtualization is not available) and configure `runsc` for the `vault-device-coordinator`'s Process A.
