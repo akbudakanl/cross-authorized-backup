@@ -7693,7 +7693,10 @@ Do this **before** initializing either repository. A single global 85% disk guar
 a compartment boundary: PC malware could append junk to its own legitimate repository
 until the shared filesystem is full and thereby deny Phone backups.
 
-### 6.1 Preferred: separate LVs/filesystems
+> [!IMPORTANT]
+> **Preferred Architecture (Firecracker/Kata & Sparse Images):** The intended deployment model for this vault uses hardware-isolated Firecracker MicroVMs (Kata Containers). This requires sparse `.img` files (`pc.img` and `phone.img`) created via `truncate`, rather than traditional LVM volumes. If you are following the preferred Kata setup (detailed in the deferred items section), you should provision sparse image files directly and skip the LVM steps below.
+
+### 6.1 Alternative: separate LVs/filesystems
 
 The clean reference layout is:
 
