@@ -3419,6 +3419,18 @@ For the actual BYOI import, use the Oracle-documented RHEL custom-image path:
    shape.
 10. Connect using the RHEL custom-image default user `cloud-user`, then create
     `vaultadmin` in Section 23.0.1.
+
+> [!IMPORTANT]
+> **Nested Virtualization Hardware Check:** Immediately after your first SSH login, run the following command to check if your VPS shape supports hardware nested virtualization:
+> ```bash
+> grep -Eo 'vmx|svm' /proc/cpuinfo | sort -u
+> ```
+> If the command returns empty (no flags found), your CPU does not expose hardware virtualization to the guest. Firecracker and Kata Containers (which depend on `/dev/kvm`) are **unsupported**. 
+> - If hardware virtualization *is* supported, you may apply the RHEL MicroVM steps (from Section H4) to the VPS coordinators.
+> - If hardware virtualization is *not* supported (the expected state for Free Tier instances), proceed with the **gVisor (Systrap) Fallback** documented in Section 23.0.8.
+> 
+> *Note on Instance Types:* Ampere A1 (ARM64) Free Tier shapes do not support nested virtualization and incur a noticeable performance overhead when running gVisor's `systrap` platform. While the overhead is acceptable for low-bandwidth cross-signing, prioritize X86_64 Free Tier shapes (e.g., AMD VM.Standard.E2.1.Micro) if available in your region.
+
 11. After both VPSs are commissioned, remove the staging object when the offline
     authoritative image/hash record is safely retained and no rollback/import operation
     still depends on that object.
@@ -4036,14 +4048,19 @@ symmetric rule.
 
 #### 23.0.8 Build and install `vault-device-coordinator`
 
-On each VPS:
+> [!IMPORTANT]
+> **Lateral Movement Hardening (Process A/B & gVisor):** To eliminate the risk of parsing-related RCEs leading to lateral movement, the `vault-device-coordinator` daemon is strictly separated into two processes:
+> - **Process A (Listener)**: An unprivileged listener running inside a **gVisor (`runsc` systrap)** sandbox. It receives raw UDP packets from `wg-cross` and passes them without parsing to a local Unix socket.
+> - **Process B (Verifier)**: Reads from the socket, verifies the Ed25519 signature directly on the raw bytes, and acts. It uses purely manual, bounds-checked fixed-length struct parsing in Go (no JSON/Protobuf/FlatBuffers) to eliminate parsing logic flaws.
+
+On each VPS, first install gVisor (if nested virtualization is not available) and configure `runsc` for the `vault-device-coordinator`'s Process A.
 
 ```bash
 sudo install -d -o vaultadmin -g vaultadmin -m 755 /usr/local/src/vault-device-coordinator
 cd /usr/local/src/vault-device-coordinator
 ```
 
-Copy the exact Go source from Section 23.4 into:
+Copy the exact Go source for Process A and Process B from Section 23.4 into:
 
 ```text
 /usr/local/src/vault-device-coordinator/main.go

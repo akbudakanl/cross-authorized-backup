@@ -299,12 +299,17 @@ for that one tailnet.
 
 **Controls:** opposite Vault VPS signature remains unavailable; AWS and RHEL verify both
 signatures; separate buckets/roles/tailnets; opposite VPS not reachable through
-`wg-cross` except the narrow cross-sign protocol.
+`wg-cross` except the narrow cross-sign protocol. The cross-sign protocol itself is hardened
+with a dual-layer boundary (gVisor `systrap` + bounds-checked fixed-length Go parsing) to
+eliminate parsing-related lateral movement risks. Furthermore, to prevent lateral movement
+at the cloud infrastructure level, the OCI Instance Metadata Service (IMDS) must not provide
+administrative IAM/API keys to the instance (no instance management roles attached).
 
 **Residual:** attacker can cause DoS in its own compartment, abuse its own approved
 source IP within whatever credentials it obtains, manipulate one tailnet signer, or
-interfere with legitimate proof timing. A matching compromise of the other signing
-boundary breaks I-03.
+interfere with legitimate proof timing. Exploiting the opposite VPS via `wg-cross` requires
+either a gVisor Sentry escape or a memory-safety bug in a bounds-checked Go slice operation.
+A matching compromise of the other signing boundary breaks I-03.
 
 **Status:** core design target; single VPS compromise must not independently open AWS or RHEL.
 
