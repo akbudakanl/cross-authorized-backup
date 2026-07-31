@@ -4092,9 +4092,29 @@ Install the exact systemd unit from Section 23.4. Then:
 
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now vault-device-coordinator.service
-sudo systemctl status vault-device-coordinator.service --no-pager
-sudo journalctl -u vault-device-coordinator.service -b --no-pager | tail -100
+sudo systemctl enable --now vault-device-coordinator.service vault-device-listener.service
+sudo systemctl status vault-device-coordinator.service vault-device-listener.service --no-pager
+sudo podman logs vault-device-coordinator
+sudo podman logs vault-device-listener
+```
+
+#### 23.0.9 Verify Dual-gVisor Communication
+
+Since both Process A and Process B now run in isolated gVisor containers, verify their IPC and networking:
+
+1. **Verify Tailscale Networking (Process B):**
+   Run the following from your local Client device:
+   ```bash
+   curl -X POST http://VPS_TAILSCALE_IP:8889/authorize -d "test-token"
+   ```
+   Check `sudo podman logs vault-device-coordinator`. It should show the HTTP request being received, confirming Tailscale port mapping works.
+
+2. **Verify Unix Socket IPC (Process A to B):**
+   Send a dummy UDP packet to Process A's `wg-cross` port:
+   ```bash
+   nc -u 10.254.0.1 8891 <<< "dummy|packet"
+   ```
+   Check `sudo podman logs vault-device-coordinator`. You should see "Received valid structured packet" (or a security drop log), confirming that Process A successfully received the UDP packet inside its gVisor sandbox and forwarded it over the shared Unix socket (`/var/lib/vault-device/coordinator.sock`) to Process B's gVisor sandbox.
 sudo ss -lntp | grep -E ':8889|127\.0\.0\.1:8890|10\.254\.0\.[12]:8891'
 ```
 
@@ -5586,18 +5606,25 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=/etc/vault-device/coordinator.env
-ExecStart=/usr/local/sbin/vault-device-coordinator
 User=vaultcoord
 Group=vaultcoord
+ExecStartPre=-/usr/bin/podman rm -f vault-device-coordinator
+ExecStart=/usr/bin/podman run --rm \
+  --runtime=runsc \
+  --name vault-device-coordinator \
+  --read-only \
+  --cap-drop=all \
+  --security-opt=no-new-privileges \
+  --memory=64m \
+  --pids-limit=20 \
+  -p 8889:8889/tcp \
+  -v /var/lib/vault-device:/var/lib/vault-device:rw,Z \
+  -v /etc/vault-device:/etc/vault-device:ro,Z \
+  localhost/vault-coordinator-image:latest \
+  /usr/local/sbin/vault-device-coordinator
+ExecStop=/usr/bin/podman stop -t 2 vault-device-coordinator
 Restart=on-failure
 RestartSec=3
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/vault-device
-ReadOnlyPaths=/etc/vault-device
 
 [Install]
 WantedBy=multi-user.target
