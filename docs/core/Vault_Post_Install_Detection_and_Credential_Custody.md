@@ -16,6 +16,9 @@
 
 ## 1. What this guide is trying to achieve
 
+> [!NOTE]
+> Sisteme yeterli miktarda log dosyaları eklemek ve bunların kontrolünü yapmak için talimatlar barındırmak da detection (tespit) açısından hayati derecede önemlidir.
+
 The core Vault already tries to **prevent** one compromised endpoint or one
 compromised VPS from independently creating a new AWS/RHEL backup window. Prevention is
 not the same as visibility. A broad credential such as Tailscale `devices:core`, an

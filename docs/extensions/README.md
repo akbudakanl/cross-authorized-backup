@@ -8,6 +8,7 @@ This directory contains optional architecture extensions, alternative configurat
 |-----------|--------|--------|
 | [Automated Diagnostics](Vault_Extension_Automated_Diagnostics.md) | `integrated` | Core concepts integrated into the Core master guide. |
 | [Capacity Triggered Prune](Vault_Extension_Capacity_Triggered_Prune_and_Maintenance.md) | `rejected` | Security reasons (violates no-prune/keep-all-history mode). |
+| [Endpoint Monitoring During Pre-Auth Process](Vault_Extension_Endpoint_Monitoring_During_Pre_Auth_Process.md) | `bekliyor` | Advanced endpoint detection during the open-gate backup window. |
 | [Headscale Control Plane](Vault_Extension_Headscale_Control_Plane.md) | `rejected` | Security considerations and extra infrastructure requirements (no Tailnet Lock). |
 | [Host Level Containment](Vault_Extension_Host_Level_Containment.md) | `integrated` | Advanced hardening natively integrated via Firecracker microVMs. |
 | [Mutual Backup](Vault_Extension_Mutual_Backup.md) | `rejected` | Security reasons (unwanted inbound connections). |
