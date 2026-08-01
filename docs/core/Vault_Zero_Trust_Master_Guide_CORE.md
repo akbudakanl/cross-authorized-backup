@@ -11973,13 +11973,29 @@ Kata Containers requires access to virtualization devices (like `/dev/kvm` and `
        This **must** result in an `AVC Denial` (Permission Denied). If it succeeds, your policy is dangerously broad.
 5. **Load and Enforce:** Once verified, compile and load the policy module (`semodule -i`), then remove the permissive scope (`semanage permissive -d <kata_domain_t>`). Repeat this capture process after standard system updates (`dnf update`), not just major Kata releases.
 
-#### 3. Disk Usage Gate & Host-Level Enforcement
+#### 3. In-VM Append-Only Protection (chattr +a)
+
+To provide defense-in-depth against a compromised `rest-server` container, apply the ext4/xfs append-only attribute (`chattr +a`) to the critical repository directories *inside* the MicroVM. This ensures that even if an attacker bypasses the application-level `--append-only` flag (e.g., via a vulnerability in `rest-server`), the guest OS kernel will block any attempts to delete or alter existing files unless the attacker also manages to escalate to `root` within the MicroVM.
+
+Since the RHEL host treats the `.img` file as opaque and does not mount it, this attribute must be set from *within* the MicroVM (or via a temporary privileged container run) after the initial `restic init` has created the repository structure:
+
+```bash
+# Example command to run as root inside the MicroVM (or via a one-off container):
+chattr +a /path/to/mounted/repo/data /path/to/mounted/repo/index /path/to/mounted/repo/snapshots
+```
+
+> [!WARNING]
+> Do **not** apply `chattr +a` to the `locks` directory or the root repository directory itself. Restic must be able to create and delete temporary lock files during normal backup operations.
+
+If a sophisticated attacker gains `root` access inside the MicroVM, they can reverse this protection using `chattr -a`. In that worst-case scenario, the offline USB restic sync on the host (which the MicroVM cannot reach) remains your final, immutable protection layer.
+
+#### 4. Disk Usage Gate & Host-Level Enforcement
 
 Your existing rule to halt backups if host disk usage exceeds 85% functions identically with sparse `.img` files (use `df -h` to measure total partition usage). If the threshold is crossed:
 1. Do not start the `vault-rest-server-pc` and `vault-rest-server-phone` services.
 2. Apply `chattr +i /var/lib/vault-rhel/repos/pc.img` (and phone.img) to enforce physical read-only protection at the host filesystem level. Remove the immutable flag only when space is cleared and the services are safe to resume.
 
-#### 4. Host Filesystem Mount Restrictions (No-Exec, No-Dev)
+#### 5. Host Filesystem Mount Restrictions (No-Exec, No-Dev)
 
 As an ultimate failsafe against a container-to-host VMM breakout, the backend ZFS or Btrfs dataset hosting the backup images (`/var/lib/vault-rhel/repos/`) **must** be mounted with extreme restrictions on the host.
 1. Edit the host `/etc/fstab` (or your ZFS dataset properties).
