@@ -1,8 +1,10 @@
+---
+status: rejected
+---
 # VAULT EXTENSION — CAPACITY-TRIGGERED PRUNE AND PERMANENT RETENTION MAINTENANCE
 ================================================================================
 
-> [!WARNING]
-> **REJECTED:** This extension has been rejected for security reasons and its contents are not included in the Core master guide.
+This extension has been rejected for security reasons and its contents are not included in the Core master guide.
 
 ## 1. Purpose
 

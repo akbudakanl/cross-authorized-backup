@@ -1,9 +1,11 @@
+---
+status: integrated
+---
 # Vault Extension: Advanced Host-Level Containment and Monitoring
 
 **Classification:** ADVANCED HARDENING / RESIDUAL RISK MANAGEMENT
-> [!NOTE]
-> **Status: INTEGRATED INTO CORE MASTER**
-> This extension has been fully integrated into the core master guide. The containment architecture now natively utilizes **Firecracker-based MicroVMs** and **block disks**, providing a robust hardware-level isolation boundary.
+
+This extension has been fully integrated into the core master guide. The containment architecture now natively utilizes **Firecracker-based MicroVMs** and **block disks**, providing a robust hardware-level isolation boundary.
 
 ## 1. Overview and Residual Risk
 

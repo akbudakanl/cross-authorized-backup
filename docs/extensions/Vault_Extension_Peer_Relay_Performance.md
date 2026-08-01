@@ -1,8 +1,10 @@
+---
+status: rejected
+---
 # VAULT EXTENSION — ADD PEER RELAY ONLY AFTER A MEASURED DERP PERFORMANCE FAILURE
 ================================================================================
 
-> [!CAUTION]
-> **CONDITIONALLY REJECTED:** This extension is currently rejected for security reasons, as opening an additional UDP port is not desired at this time. However, it may be reconsidered in the future if the current DERP solution leads to transfer speed degradation caused by the "TCP meltdown" problem.
+This extension is currently rejected for security reasons, as opening an additional UDP port is not desired at this time. However, it may be reconsidered in the future if the current DERP solution leads to transfer speed degradation caused by the "TCP meltdown" problem.
 
 ## 1. Purpose
 

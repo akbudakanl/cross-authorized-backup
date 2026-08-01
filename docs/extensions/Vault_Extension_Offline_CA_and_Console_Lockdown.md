@@ -1,3 +1,6 @@
+---
+status: integrated
+---
 # Vault Extension: Offline SSH CA & Console Break-Glass Lockdown
 
 **Classification:** ARCHITECTURE EXTENSION / OPTIONAL HARDENING

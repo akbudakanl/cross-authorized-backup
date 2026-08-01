@@ -1,6 +1,9 @@
+---
+status: integrated
+---
 # EXTENSION: AUTOMATED CORRUPTION DIAGNOSTICS & SELF-HEALING
 
-> **NOTE:** This extension plan is approved and its core concepts (out-of-band diagnostic signaling and parsing principles) are integrated directly into the Core master guide. This file serves as the detailed reference for the diagnostic architecture.
+This extension plan is approved and its core concepts (out-of-band diagnostic signaling and parsing principles) are integrated directly into the Core master guide. This file serves as the detailed reference for the diagnostic architecture.
 
 ================================================================================
 
