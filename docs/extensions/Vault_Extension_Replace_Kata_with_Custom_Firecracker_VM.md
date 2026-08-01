@@ -53,3 +53,35 @@ Firecracker is controlled via a local Unix socket API, not a traditional CLI.
 
 ### 5. Automated Upgrade Pipeline
 - Since there is no SSH access, updates to `rest-server` require destroying the old `rootfs.ext4` and running the baking script (Step 2) to generate a fresh image with the new binary.
+
+## Alternative: Hardening Kata Instead of Replacing It (The "Tricks")
+
+If building a custom Firecracker VM from scratch introduces too much operational overhead, you can achieve near-identical security by brutally restricting the existing Kata vsock communication channels. This retains the operational ease of Podman while neutralizing the orchestration attack surface.
+
+### 1. Paralyze the Host `kata-shim` via SELinux (The Strongest Trick)
+Even if an attacker compromises the `kata-agent` inside the VM and exploits a vulnerability over vsock to hijack the `kata-shim` process on the RHEL host, we can trap the shim.
+- **Action:** Apply a hyper-restrictive SELinux domain (e.g., `kata_shim_t`) to the shim process on the host.
+- **Effect:** The hijacked shim process will be denied access to all host files (like `/etc/passwd` or SSH keys) and will be completely blocked from executing any binaries or opening network connections. The attacker gains code execution on a process that is permanently paralyzed by the host kernel.
+
+### 2. Strip `exec` Capabilities from a Custom `kata-agent`
+Kata's primary attack surface over vsock is accepting commands to start new processes (like `podman exec`).
+- **Action:** Recompile the `guest-initrd` (the tiny OS image Kata uses for the VM) with a custom `kata-agent` where the `exec` and RPC functions are removed at the source code level, or heavily restricted via `configuration.toml` (`enable_guest_seccomp = true`).
+- **Effect:** The agent becomes deaf to complex orchestration commands after the initial boot sequence. A compromised VM cannot send complex orchestration requests back to the host because the agent's functionality has been amputated.
+
+### 3. Revoke `execve` via Host Seccomp Profiles
+The `kata-shim` process on the host is designed to relay network packets and logs; it fundamentally does not need to spawn new applications on the host OS.
+- **Action:** Apply a strict Seccomp profile to the `kata-shim` process on the RHEL host.
+- **Effect:** If the shim is exploited and the attacker attempts to run a payload (like dropping a shell or executing malware), the host kernel instantly kills the `kata-shim` process (`SIGSYS`) because the `execve` syscall is forbidden.
+
+### 4. Disable Debugging, Profiling, and Telemetry
+Kata leaves several internal communication and profiling channels open by default for developers.
+- **Action:** Modify `/etc/kata-containers/configuration.toml` to disable all extraneous features:
+  ```toml
+  [hypervisor.firecracker]
+  enable_debug = false
+
+  [agent.kata]
+  enable_pprof = false
+  enable_tracing = false
+  ```
+- **Effect:** The vsock communication channel is reduced to absolute minimum data flow, stripping away unnecessary attack vectors.
