@@ -107,8 +107,8 @@ To achieve quantum resistance for the authorization plane in the future, the arc
 
 **Experimental / pre-deployment architecture**
 
-Architecture baseline established: **2026-07-15**  
-Latest security-design revision: **2026-07-28**
+Architecture baseline established: **2026-03-26**  
+Latest security-design revision: **2026-08-01**
 
 The current design has undergone extensive architecture and threat-model review.
 
