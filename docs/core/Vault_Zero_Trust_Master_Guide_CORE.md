@@ -332,6 +332,9 @@ Phone plaintext
 > ```
 > 
 > This perfectly handles block-level changes efficiently without copying massive files daily. Even if a MicroVM is compromised and the `.img` is corrupted, the RHEL Host safely backs up the corrupted blob to the USB without interpreting it, keeping the Host pristine.
+>
+> [!NOTE]
+> **Prune Limitation:** Pruning is not possible when transferring data from the client (phone/computer) into the MicroVMs on the RHEL server because doing so would require either removing the `--append-only` flag or storing restic keys on the server. Since we accept neither compromise, pruning is currently not applied. HOWEVER, pruning can be applied when synchronizing the `.img` file from the RHEL Host to an external USB drive via restic, as there is no password at this stage. (To be detailed in the future)
 
 There is deliberately **no** PC→Phone or Phone→PC backup flow. Removing the flow
 eliminates the direct cross-device Caddy/rest-server attack edge rather than merely
