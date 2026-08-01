@@ -1,6 +1,6 @@
 # Vault Extension: Endpoint Monitoring During Pre-Auth Process
 
-**Status:** `bekliyor` (Pending / Experimental)
+**Status:** `pending` (Pending / Experimental)
 **Reason:** Explores advanced local endpoint (Fedora/Linux) detection to prevent process hijacking or concurrent shadow backups during the brief 15-minute open-gate window.
 
 ## Overview
