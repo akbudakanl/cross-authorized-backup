@@ -134,10 +134,7 @@ docs/
 │   └── Vault_Detection_and_Credential_Custody.md
 │
 ├── extensions/
-│   ├── Vault_Extension_Mutual_Backup.md
-│   ├── Vault_Extension_Capacity_Triggered_Prune_and_Maintenance.md
-│   ├── Vault_Extension_Headscale_Control_Plane.md
-│   └── Vault_Extension_Peer_Relay_Performance.md
+│   └── (See docs/extensions/README.md for the index of all extensions)
 │
 ├── operations/
 │   ├── Vault_Device_Retirement_and_Migration_Runbook.md
