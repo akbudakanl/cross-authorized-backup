@@ -108,7 +108,7 @@ To achieve quantum resistance for the authorization plane in the future, the arc
 **Experimental / pre-deployment architecture**
 
 Architecture baseline established: **2026-03-26**  
-Latest security-design revision: **2026-08-01**
+Latest security-design revision: **2026-08-02**
 
 The current design has undergone extensive architecture and threat-model review.
 
@@ -161,31 +161,3 @@ The repository was initialized after the first major architecture-review phase t
 The 2026-07-16 completion-containment revision is intentionally preserved as a visible design change: the original architecture already prevented one endpoint plus its own MFA path from independently obtaining a fresh S3 session, but successful backup completion still relied too heavily on cooperative endpoint signaling for early closure. The revised design adds independently observed completion, role-session revocation, and signed cross-compartment close authority.
 
 Future changes should be driven by measured deployment behavior, discovered failure modes, or materially changed security assumptions rather than feature accumulation.
-
-### Caddy hardening (RHEL)
-
-Both `vault-caddy-pc.service` and `vault-caddy-phone.service` run under systemd
-sandboxing equivalent in intent to the rootless Podman rest-server containers:
-read-only root filesystem (`ProtectSystem=strict`), all capabilities dropped
-(`CapabilityBoundingSet=`/`AmbientCapabilities=` empty), a user-namespace remap
-(`PrivateUsers=yes`), memory/task limits (`MemoryMax=512M`, `TasksMax=50`), a broad
-syscall group filter (`SystemCallFilter=@system-service`), write^execute memory
-denial (`MemoryDenyWriteExecute=yes`), and an address-family allowlist restricted to
-exactly what the TLS listener and unix-socket upstream require
-(`AF_INET AF_INET6 AF_UNIX`).
-
-Caddy remains the sole network-reachable component in the RHEL backup path; rest-server
-is unreachable except via the unix socket Caddy proxies to, after Caddy's
-method/path allowlist (`@restic`) has already rejected anything outside the exact
-restic REST surface.
-
-**Known deferred item:** running Caddy inside Podman (matching the rest-server
-container model) instead of raw systemd. Not required by the current threat model —
-see `Caddy_Hardening_Implementation_Plan.md` §3 for the full rationale, trigger
-conditions, and implementation outline if revisited.
-
-### Pre-Auth Gate / SPA (fwknop)
-
-The addition of a Single Packet Authorization (SPA) layer (e.g., `fwknop`) in front of the Caddy gate to prevent unauthenticated network reachability from hitting the L7 layer is a documented future consideration (see `Additional Files/vault-gate-l3-migration-proposal.md`).
-
-**Important Note:** The security trade-offs of this addition—specifically, exposing a C-based, memory-unsafe daemon (even if heavily sandboxed) to unauthenticated packets in order to protect the memory-safe Go TLS/HTTP stack—are currently unresolved. Unlike the other detailed hardening measures in this guide, the exact implementation, isolation strategy, and overall net-security benefit of adding this SPA layer remain entirely as a question mark and require further threat modeling before any deployment.
