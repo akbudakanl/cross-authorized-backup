@@ -50,3 +50,5 @@ Desktop.ini
 .idea/
 *.swp
 *.tmp
+/docs/core/vault_guide_split
+/docs/core/vault_post_install_split
