@@ -52,3 +52,5 @@ Desktop.ini
 *.tmp
 /docs/core/vault_guide_split
 /docs/core/vault_post_install_split
+fix.ps1
+test_generic.ps1

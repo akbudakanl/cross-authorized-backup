@@ -164,7 +164,7 @@ server-side and independent of a cooperative endpoint.
    admission.
 22. Local `DONE s3`, peer close, AWS role-session revocation, and the signed one-hour
    deadline are ordered containment layers. No endpoint can use `DONE` to open or extend
-   a session, and suppressing `DONE` does not preserve the S3 path after a successful
+   a session, and suppressing `DONE` does not preserve the S3 Alternative Pathfter a successful
    backup has been independently observed.
 ```
 
@@ -1261,7 +1261,7 @@ This restriction applies only to credential creation. After one credential is
 successfully issued, restic/S3 request retries, reconnects, and transient data-plane
 retries are allowed with that **same credential only while the backup is incomplete,
 the completion state has not reached `REVOKED`, and the signed hard deadline remains
-open**. A successful backup is expected to lose both its VPS admission path and its old
+open**. A successful backup is expected to lose both its VPS admission Alternative Pathnd its old
 role-session permissions before the one-hour maximum.
 
 ### 22.7A Deploy the device-specific S3 completion revokers
@@ -2290,7 +2290,7 @@ aws s3api put-bucket-policy \
 
 Do not replace the policies with `Principal: "*"` deny rules unless you fully understand
 the condition logic. An accidental broad deny can lock out the administrator/recovery
-path as well.
+Alternative Paths well.
 
 #### 22.12.7 Give each Lambda role only `PutItem` and its one `AssumeRole`
 
@@ -3441,7 +3441,7 @@ For the actual BYOI import, use the Oracle-documented RHEL custom-image path:
 Do not import an `x86_64` image and try to launch it on Ampere, or import an `aarch64`
 image and try to launch it on the AMD shape.
 
-OCI imported RHEL images use the BYOI/custom-image path and paravirtualized launch mode.
+OCI imported RHEL images use the BYOI/custom-image Alternative Pathnd paravirtualized launch mode.
 Licensing remains the operator's Red Hat BYOL responsibility.
 
 Immediately after first boot, on each VPS:
@@ -3654,7 +3654,7 @@ sudo firewall-cmd --permanent --zone=drop --change-interface="$PUBLIC_IF"
 
 Add the required inbound exception(s) based on your deployment environment:
 
-#### Path A: Cloud VPS Deployment (Remote SSH Required)
+#### Alternative Path: Cloud VPS Deployment (Remote SSH Required)
 If deploying on a cloud VPS (e.g., OCI), open SSH exclusively for your admin IP, alongside the WireGuard peer port:
 
 ```bash
@@ -3783,7 +3783,7 @@ To recover from a `pam_faillock` lockout without relying on a Cloud Provider's W
 *Security Posture & Symmetrical Architecture:* This architecture is fully reciprocal. If an attacker locks out `vault-pc`, you use your physical Phone and its passphrase-protected recovery key to send the unlock signal. Conversely, if `vault-phone` is locked out, you use the PC's recovery key. Even if an attacker steals the recovery key, they cannot gain a shell or execute arbitrary commands. The rate limiting for the recovery key is moot (SSH keys cannot be network brute-forced); the true protection is the key's local passphrase and the strict structural isolation of this recovery channel.
 
 
-#### Path B: Physical Server Deployment (No-SSH Baseline - Recommended)
+#### Primary Path: Physical Server Deployment (No-SSH Baseline - Recommended)
 If deploying on a physical server with local/out-of-band console access, **do not open port 22**. Completely disable the SSH service from Day 1 to eliminate the remote administrative attack surface entirely:
 
 ```bash
@@ -6508,7 +6508,7 @@ The VPS exact-host S3 proxy remains Tailnet-only; its reserved public IPv4 is us
 This managed-DERP baseline is preferred for the Tailscale variant because it removes
 three public relay/STUN listener classes from each Vault VPS. Tailscale-hosted DERP is
 still a relay of WireGuard end-to-end encrypted tailnet traffic. The trade-off is
-performance: DERP is a TCP relay path and can be materially slower than direct UDP or a
+performance: DERP is a TCP relay Alternative Pathnd can be materially slower than direct UDP or a
 well-placed Peer Relay for large restic transfers.
 
 
@@ -8350,7 +8350,7 @@ https://PHONE_RHEL_TS_IP:8002 {
 }
 ```
 
-Use the same positive REST method/path allowlist. The allowlist narrows parser/request
+Use the same positive REST method/Alternative Pathllowlist. The allowlist narrows parser/request
 surface; `rest-server --append-only` remains the authoritative repository-mutation
 restriction.
 
@@ -11933,7 +11933,7 @@ use Firecracker as the VMM and KVM as the hypervisor; they differ in how the hos
 manages the guest:
 
 ```text
-Path A — Kata Containers (H4.1.1)
+Alternative Path — Kata Containers (H4.1.1)
   Kata's containerd shim manages the VM lifecycle via ttrpc over vsock.
   A guest-side agent receives commands; Agent Policy (OPA/Rego) filters
   the allowed ttrpc API surface.  The tradeoff: OCI ecosystem integration
@@ -11941,7 +11941,7 @@ Path A — Kata Containers (H4.1.1)
   through kata-shim-v2 — an additional host-side attack surface beyond the
   hypervisor boundary.
 
-Path B — Bare Firecracker (H4.1.2)
+Primary Path — Bare Firecracker (H4.1.2)
   Firecracker runs directly via its HTTP API + jailer.  No agent, no shim,
   no vsock.  The guest boots, starts rest-server, and serves HTTP over
   virtio-net.  The tradeoff: the host-guest protocol channel is eliminated
@@ -11952,7 +11952,7 @@ Path B — Bare Firecracker (H4.1.2)
 A feasibility spike (H4.1.3) determines which path to commit. Neither is removed
 from the guide — the unchosen path remains a documented, tested fallback.
 
-### H4.1.1 Advanced Hardening: Kata Containers MicroVM Isolation (Path A)
+### H4.1.1 Advanced Hardening: Kata Containers MicroVM Isolation (Alternative Path)
 
 For extreme isolation against host-kernel exploits (e.g., container breakout 0-days), you can replace the standard OCI runtime (`crun`/`runc`) with **Kata Containers**. This wraps the rootless rest-server container in a hardware-isolated Firecracker MicroVM. To adhere to Firecracker's minimal device model, storage is provided as a raw block image file rather than a shared directory.
 
@@ -12238,7 +12238,7 @@ f) internetworking_model = none optimization
 > officially maintained, and strictly more capable than a hand-patched fork,
 > so there is no reason not to adopt it as defense in depth.
 
-### H4.1.2 Advanced Hardening: Bare Firecracker MicroVM Isolation (Path B)
+### H4.1.2 Advanced Hardening: Bare Firecracker MicroVM Isolation (Primary Path)
 
 Instead of wrapping the rest-server container in a Kata-managed Firecracker MicroVM,
 this path runs Firecracker directly — with no guest agent, no containerd shim, no
@@ -12253,10 +12253,10 @@ response. Logic bugs, unexpected state transitions, and deserialization-confusio
 vulnerabilities do not require a memory-unsafe language to exist. Removing the
 protocol removes the class of bug, regardless of implementation language.
 
-#### 1. What Changes vs Path A
+#### 1. What Changes vs Alternative Path
 
 ```text
-                              Path A (Kata)           Path B (Bare FC)
+                              Alternative Path (Kata)           Primary Path (Bare FC)
 ───────────────────────────────────────────────────────────────────────
 Host-guest channel            vsock + ttrpc            virtio-blk + virtio-net ONLY
 Host process parsing          kata-shim-v2 (ttrpc      Firecracker VMM (virtio
@@ -12546,9 +12546,9 @@ allow firecracker_t kvm_device_t : chr_file { open read write ioctl };
 Repeat the SELinux capture process after Firecracker binary updates, not just major
 version changes.
 
-#### 8. Shared Hardening (Same as Path A)
+#### 8. Shared Hardening (Same as Alternative Path)
 
-The following protections from H4.1.1 apply identically to Path B:
+The following protections from H4.1.1 apply identically to Primary Path:
 
 - **Disk Usage Gate & Host-Level Enforcement** (H4.1.1 Step 4): 85% threshold,
   `chattr +i` on `.img` files when threshold is crossed. Do not start the MicroVM.
@@ -12572,7 +12572,7 @@ There is no `dnf update` inside the guest, no SSH fallback, and no `podman exec`
 inspect a running VM. If a rebuilt rootfs fails to boot, debugging requires offline
 image inspection or temporary serial console.
 
-This is the real ongoing cost relative to Path A's `dnf update kata-containers` and
+This is the real ongoing cost relative to Alternative Path's `dnf update kata-containers` and
 Podman image pulls. It is manageable when updates are scripted into a reproducible
 build pipeline, but it is a **recurring commitment, not a one-time setup cost.** Every
 rest-server or kernel bump means rebuild-rootfs, rebuild-kernel-if-needed, redeploy,
@@ -12625,10 +12625,10 @@ iterations the init-system wiring required.
 #### Decision criteria
 
 ```text
-Criterion                          Path A (Kata)     Path B (Bare FC)
+Criterion                          Alternative Path (Kata)     Primary Path (Bare FC)
 ───────────────────────────────────────────────────────────────────────
 Host-guest parse channel           vsock + ttrpc     virtio only
-OCI/containerd ecosystem           ✅ native         ❌ not applicable
+OCI/containerd ecosystem           ✅ native         âŒ not applicable
 Rootfs/kernel update mechanism     dnf update        manual rebuild
 Readiness detection                agent health RPC  TCP probe (custom)
 Guest-internal API hardening       Agent Policy      N/A (no agent)
@@ -12639,9 +12639,9 @@ Recurring maintenance tax          lower             higher
 
 #### Outcome
 
-- **Spike succeeds → evaluate Path B** for production, accepting the recurring
-  rebuild tax. Path A remains a tested fallback.
-- **Spike fails or requires excessive custom work → stay on Path A** with the
+- **Spike succeeds → evaluate Primary Path** for production, accepting the recurring
+  rebuild tax. Alternative Path remains a tested fallback.
+- **Spike fails or requires excessive custom work → stay on the Alternative Path** with the
   Agent Policy lockdown already documented in H4.1.1 Step 6.
 - **Regardless of outcome:** the feasibility spike itself is cheap (one disposable
   instance, a few hours) and the answer is worth knowing before committing either
@@ -12695,7 +12695,7 @@ TasksMax=50
 UMask=0077
 ```
 
-Retain each service's own config, certificate/key, state, and log path allowlists. Do not
+Retain each service's own config, certificate/key, state, and log Alternative Pathllowlists. Do not
 give either Caddy unit access to:
 
 ```text
@@ -12704,7 +12704,7 @@ give either Caddy unit access to:
 /var/lib/vault-rhel/gate
 ```
 
-### H4.3.1 Advanced Hardening: Containerized Caddy via Kata MicroVMs (Path A)
+### H4.3.1 Advanced Hardening: Containerized Caddy via Kata MicroVMs (Alternative Path)
 
 If you have chosen to containerize the `rest-server` via Kata Containers, you can apply the exact same hardware-level MicroVM isolation to Caddy, moving it out of native systemd confinement and into a rootless Kata container.
 
@@ -12735,7 +12735,7 @@ podman run -d \
 > directory-sharing hypervisor. Two candidate mechanisms need local verification before
 > this is settled: (a) a second small, read-only raw block image containing the config/certs,
 > mounted the same way the repository image is; (b) Kata's native small-file config-injection
-> path at VM start, if supported for this Kata/Firecracker version. Do not treat either as
+> Alternative Patht VM start, if supported for this Kata/Firecracker version. Do not treat either as
 > confirmed until tested.
 
 #### 2. Apply the Secure SELinux Policy Generation Workflow
@@ -12752,9 +12752,9 @@ sudo runcon -t <caddy_firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/pho
 ```
 Both **must** result in an `AVC Denial`.
 
-### H4.3.2 Advanced Hardening: Containerized Caddy via Bare Firecracker (Path B)
+### H4.3.2 Advanced Hardening: Containerized Caddy via Bare Firecracker (Primary Path)
 
-If you have chosen bare Firecracker (Path B) for the rest-server MicroVM, apply the
+If you have chosen bare Firecracker (Primary Path) for the rest-server MicroVM, apply the
 same approach to Caddy. Instead of the Kata/Podman invocation in H4.3.1, Caddy runs
 inside its own dedicated Firecracker MicroVM with no agent, no shim, and no vsock.
 
@@ -13065,3 +13065,6 @@ Because the transfer was abruptly killed, Restic leaves the repository "locked" 
 restic unlock
 ```
 You can now resume your backups!
+
+
+
