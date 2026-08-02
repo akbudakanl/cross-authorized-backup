@@ -12007,6 +12007,213 @@ As an ultimate failsafe against a container-to-host VMM breakout, the backend ZF
 > - **Podman+Kata Drive Config Integration:** Determine the exact mechanism to pass Firecracker's drive configuration (JSON config/annotation pointing to the mounted `.img`) through Podman to `kata-runtime`.
 > - **SELinux Type Names:** Confirm exact SELinux domain names via `ps -eZ` on this host before writing policy generation steps into any operational runbook.
 > - **Sparse File Growth:** Confirm sparse raw file growth (`truncate`) behavior on your chosen host filesystem (ext4 assumed).
+> - **Agent Policy Build-Time Flag:** Verify that the Kata binary packaged for RHEL 9 was built with `AGENT_POLICY=yes`. If the distribution package does not include policy support, rebuild the guest rootfs with `AGENT_POLICY=yes AGENT_POLICY_FILE=/path/to/vault-kata-policy.rego ./rootfs.sh rhel`. Confirm OPA is present in the resulting rootfs.
+> - **Stdio Implicit Dependency:** Before enforcing the production deny policy, verify through isolated testing that the container creation flow (`CreateContainer` → `StartContainer`) does not implicitly require `ReadStdout`/`ReadStderr`/`CloseStdin` handshakes. If it does, selectively re-enable only the required stdio RPC and document the reason.
+> - **`internetworking_model = none` Compatibility:** Test whether setting `internetworking_model = "none"` in Kata's `configuration.toml` is compatible with the per-repository network namespace + TAP layout. If compatible, all network-setup RPCs (`UpdateInterface`, `UpdateRoutes`, `AddARPNeighbors`) become unnecessary and the allowlist shrinks further. IP/route configuration is embedded statically in the guest rootfs or kernel command line.
+
+#### 6. Kata Agent Policy — Default-Deny ttrpc Request Filtering (OPA/Rego)
+
+Do not fork or hand-patch the Kata agent source to disable dangerous APIs. Kata ships
+an official mechanism called **Agent Policy**: an OPA/Rego-based allowlist that the
+guest agent evaluates against every incoming ttrpc request before acting on it. It is
+enabled at build time (`AGENT_POLICY=yes`) and enforced by the agent working together
+with OPA for each request. It is officially maintained, updates cleanly across Kata
+releases, and is strictly more capable than a hand-patched fork.
+
+The Vault rest-server MicroVM needs only bare container lifecycle operations. The
+policy below uses **default-deny for every ttrpc endpoint** and allowlists only the
+minimum set required for sandbox boot, container create/start/wait, clean teardown,
+network setup, and a small number of harmless sandbox helpers:
+
+```rego
+package agent_policy
+
+import future.keywords.in
+import future.keywords.if
+
+# ────────────────────────────────────────────────────────────
+# DEFAULT-DENY: every ttrpc request type that is not
+# explicitly allowed below is rejected.  Any future agent
+# API additions are denied automatically.
+# ────────────────────────────────────────────────────────────
+
+# ── Sandbox lifecycle (mandatory) ──────────────────────────
+default CreateSandboxRequest  := true
+default DestroySandboxRequest := true
+
+# ── Container lifecycle (mandatory) ────────────────────────
+default CreateContainerRequest := true
+default StartContainerRequest  := true
+default RemoveContainerRequest := true
+default WaitProcessRequest     := true
+
+# ── Sandbox helpers (boot / health / time) ─────────────────
+default OnlineCPUMemRequest       := true
+default SetGuestDateTimeRequest   := true
+default GetGuestDetailsRequest    := true
+default ReseedRandomDevRequest    := true
+default GetMetricsRequest         := true
+default CheckRequest              := true
+
+# ── Network setup (required during sandbox boot;
+#    removable if internetworking_model = none — see below) ─
+default UpdateInterfaceRequest  := true
+default UpdateRoutesRequest     := true
+default ListInterfacesRequest   := true
+default ListRoutesRequest       := true
+default AddARPNeighborsRequest  := true
+
+# ── DENIED: everything not listed above ────────────────────
+# The following are explicitly called out for documentation
+# and auditability.  The default-deny already covers them
+# and any future additions to the agent API.
+default ExecProcessRequest       := false   # data-leak: exec into guest
+default ReadStreamRequest        := false   # data-leak: log streaming
+default WriteStreamRequest       := false   # unnecessary stream write
+default CopyFileRequest          := false   # file injection into guest
+default SignalProcessRequest     := false   # unnecessary — RemoveContainer
+                                            #   already forces termination
+default WriteStdinRequest        := false   # podman attach/exec channel only
+default ReadStdoutRequest        := false   # podman logs channel only — not
+                                            #   rest-server network I/O
+default ReadStderrRequest        := false   # same as ReadStdout
+default CloseStdinRequest        := false   # same category
+default TtyWinResizeRequest      := false   # interactive TTY
+default UpdateContainerRequest   := false   # cgroup modification
+default StatsContainerRequest    := false   # container stats
+default ListProcessesRequest     := false   # process listing (debug)
+default PauseContainerRequest    := false   # pause — no use case
+default ResumeContainerRequest   := false   # resume — no use case
+default AddSwapRequest           := false   # swap — unnecessary
+default MemHotplugByProbeRequest := false   # memory hotplug probe
+default GetOOMEventRequest       := false   # OOM event — unnecessary
+```
+
+Key design decisions behind the deny choices:
+
+```text
+SignalProcess → DENY
+  RemoveContainer already carries its own forced-termination + timeout
+  guarantee: it waits for all processes to exit and errors if a process
+  cannot be killed within the timeout.  SignalProcess only adds "graceful
+  SIGTERM first, then SIGKILL after a grace period" — i.e. podman-stop-
+  style polite shutdown.  In the Vault architecture every ceremony is a
+  full CreateSandbox → … → DestroySandbox cycle, the signed hard-deadline
+  model already accepts mid-transfer hard cuts (DONE suppression cannot
+  extend the deadline), and PauseContainer/ResumeContainer are denied (no
+  state-preserving stop/resume scenario).  The loss of graceful shutdown
+  adds no new risk; it is functionally the same class of event as the
+  existing network-drop / hard-stop-timer runbook scenario.
+
+Stdio (WriteStdin / ReadStdout / ReadStderr / CloseStdin) → DENY
+  These RPCs carry the container's stdin/stdout/stderr streams for
+  podman logs / podman attach / podman exec.  They are completely unrelated
+  to rest-server's actual network function: HTTP traffic flows over
+  virtio-net, not through the agent stdio channel.  rest-server continues
+  to serve Caddy requests with these RPCs denied.
+  If rest-server application logs are needed for the detection system,
+  configure rest-server to write logs to a file on the block device inside
+  the guest, and collect them through a host-side mechanism (block-device
+  inspection after teardown, or a dedicated vsock channel) rather than
+  through the agent stdio RPCs.
+  Verify through testing (see the incremental methodology below) that the
+  CreateContainer → StartContainer flow does not implicitly require a stdio
+  handshake before enforcing this in production.
+```
+
+**Deployment — embedded in guest rootfs (preferred for Vault):**
+
+```bash
+AGENT_POLICY=yes \
+AGENT_POLICY_FILE=/path/to/vault-kata-policy.rego \
+  ./rootfs.sh rhel
+```
+
+The resulting rootfs image contains OPA and the policy file. Every sandbox
+boot enforces the policy without runtime injection. For Kubernetes
+environments, the alternative is to base64-encode the Rego file and apply it
+as a pod annotation (`io.katacontainers.config.agent.policy`), but for the
+Vault's dedicated single-workload MicroVM the build-time embedding is
+simpler and avoids an injection path.
+
+**Network RPC optimization — `internetworking_model = none`:**
+
+Before finalizing the network portion of the allowlist, check whether Kata's
+`configuration.toml` setting `internetworking_model = "none"` is compatible
+with the per-repository network namespace + TAP layout documented in
+Section 12. When set to `none`, Kata skips automatic guest network
+configuration entirely — no `UpdateInterface`, `UpdateRoutes`, or
+`AddARPNeighbors` RPCs are issued. IP and route information is instead
+embedded statically in the guest rootfs or kernel command line. This aligns
+with the static-IP / manual-TAP philosophy already described in the custom
+Firecracker extension. If compatible, remove all five network RPCs from the
+allowlist, reducing the allowed API surface further.
+
+**Incremental testing methodology for the allowlist:**
+
+Do not deploy the policy directly into a production ceremony. Use the
+following incremental approach in an isolated environment:
+
+```text
+a) Isolated test environment
+     Use a disposable cloud instance with nested-KVM support, not the
+     production RHEL box or VPS.  Policy experiments must be completely
+     isolated from production ceremony flows.
+
+b) Full-allow functional baseline
+     Run a complete end-to-end test without any policy: sandbox boot →
+     device mount → real restic PUT/GET through Caddy → data integrity
+     check.  Record this as the reference.
+
+c) Default-deny draft test
+     Apply the Rego policy above and repeat the same end-to-end test.
+     Match the test environment's network topology (namespace/TAP layout)
+     to the production layout; a vanilla Kata setup may produce misleading
+     results.
+
+d) Failure-driven incremental additions
+     Kata agent policy violations are not silent — the agent returns an
+     explicit "blocked by policy" error identifying the rejected RPC.
+     Start from the default-deny draft and add RPCs one at a time as
+     errors appear.  Do not bulk-allow entire categories (e.g. "all
+     network RPCs"); test UpdateInterface, UpdateRoutes, AddARPNeighbors,
+     ListInterfaces, and ListRoutes individually — some may never trigger
+     in the Vault's specific scenario.
+
+e) Negative tests
+     After the minimal allowlist is confirmed, manually verify that denied
+     RPCs are actually blocked.  Add these to the Day-Zero Acceptance
+     Matrix / H5 Hardening Acceptance Matrix in the standard format:
+
+     Test ID   │ Action                      │ Expected         │ Result
+     ──────────┼─────────────────────────────┼──────────────────┼────────
+     AP-NEG-01 │ podman exec into MicroVM    │ blocked by OPA   │
+     AP-NEG-02 │ podman logs from MicroVM    │ blocked by OPA   │
+     AP-NEG-03 │ podman cp into MicroVM      │ blocked by OPA   │
+     AP-NEG-04 │ restic backup via Caddy     │ succeeds         │
+     AP-NEG-05 │ podman stop (no SignalProc) │ RemoveContainer  │
+               │                             │ forced teardown  │
+
+f) internetworking_model = none optimization
+     If the namespace/TAP architecture is compatible with static guest
+     network configuration, set internetworking_model = "none" and repeat
+     steps (c)-(e).  If successful, remove all network RPCs from the
+     allowlist and document the static network embedding method.
+```
+
+> [!WARNING]
+> **Direction-B limitation.** Agent Policy is enforced by the guest-side agent
+> process. An attacker with full guest root ownership can modify the agent
+> binary or the policy file and bypass the filter. This is the same class of
+> limitation as the `chattr +a` protection in Step 3: both defend against
+> application-level escalation inside the MicroVM, not against guest-root
+> compromise. The outer layers — SELinux MAC on the host (Step 2), host
+> filesystem `noexec,nodev,nosuid` (Step 5), the opaque block-image model,
+> and the offline USB restic sync — remain the actual boundary against a
+> guest-root attacker. Despite this limitation, Agent Policy is free,
+> officially maintained, and strictly more capable than a hand-patched fork,
+> so there is no reason not to adopt it as defense in depth.
+
 
 ### H4.2 Complete the backend systemd confinement
 
