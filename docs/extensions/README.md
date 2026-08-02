@@ -14,6 +14,7 @@ This directory contains optional architecture extensions, alternative configurat
 | [Mutual Backup](Vault_Extension_Mutual_Backup.md) | `rejected` | Security reasons (unwanted inbound connections). |
 | [OOB Notification Routing](Vault_Extension_OOB_Notification_Routing.md) | `accepted` | Mandatory for security but pending completion of detection/notification systems. |
 | [Offline CA and Console Lockdown](Vault_Extension_Offline_CA_and_Console_Lockdown.md) | `integrated` | Architecture natively integrated into the Core structure. |
+| [PQC & Native Communication Auth Process](Vault_Extension_PQC_Native_Communication_Auth_Process.md) | `pending` | Mutual ML-DSA authentication assuming full Tailnet breach. |
 | [Peer Relay Performance](Vault_Extension_Peer_Relay_Performance.md) | `rejected` | Conditionally rejected to avoid opening additional UDP ports unless TCP meltdown occurs. |
 | [Replace Kata with Custom Firecracker VM](Vault_Extension_Replace_Kata_with_Custom_Firecracker_VM.md) | `pending` | Architecture path to eliminate Kata's vsock orchestration channels for maximum VM isolation. |
 | [Totally Self-Hosted 321 Backup Strategy](Vault_Extension_Totally_Self_Hosted_321_Backup_Strategy.md) | `accepted` | Valid alternative architecture to eliminate AWS S3 dependency. |
