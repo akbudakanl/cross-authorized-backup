@@ -11928,6 +11928,30 @@ Enforcing
 The `:Z` labels in the core bind mounts are retained. Do not work around an AVC by
 adding `--security-opt label=disable`. Inspect and correct the exact label/path problem.
 
+Two paths are documented for hardware-isolated MicroVM rest-server deployment. Both
+use Firecracker as the VMM and KVM as the hypervisor; they differ in how the host
+manages the guest:
+
+```text
+Path A — Kata Containers (H4.1.1)
+  Kata's containerd shim manages the VM lifecycle via ttrpc over vsock.
+  A guest-side agent receives commands; Agent Policy (OPA/Rego) filters
+  the allowed ttrpc API surface.  The tradeoff: OCI ecosystem integration
+  and simpler updates, but the host parses guest-controlled ttrpc responses
+  through kata-shim-v2 — an additional host-side attack surface beyond the
+  hypervisor boundary.
+
+Path B — Bare Firecracker (H4.1.2)
+  Firecracker runs directly via its HTTP API + jailer.  No agent, no shim,
+  no vsock.  The guest boots, starts rest-server, and serves HTTP over
+  virtio-net.  The tradeoff: the host-guest protocol channel is eliminated
+  entirely, but rootfs/kernel updates are manual rebuilds with no SSH
+  fallback.
+```
+
+A feasibility spike (H4.1.3) determines which path to commit. Neither is removed
+from the guide — the unchosen path remains a documented, tested fallback.
+
 ### H4.1.1 Advanced Hardening: Kata Containers MicroVM Isolation (Path A)
 
 For extreme isolation against host-kernel exploits (e.g., container breakout 0-days), you can replace the standard OCI runtime (`crun`/`runc`) with **Kata Containers**. This wraps the rootless rest-server container in a hardware-isolated Firecracker MicroVM. To adhere to Firecracker's minimal device model, storage is provided as a raw block image file rather than a shared directory.
@@ -12214,8 +12238,417 @@ f) internetworking_model = none optimization
 > officially maintained, and strictly more capable than a hand-patched fork,
 > so there is no reason not to adopt it as defense in depth.
 
+### H4.1.2 Advanced Hardening: Bare Firecracker MicroVM Isolation (Path B)
+
+Instead of wrapping the rest-server container in a Kata-managed Firecracker MicroVM,
+this path runs Firecracker directly — with no guest agent, no containerd shim, no
+vsock channel, and no ttrpc protocol. The guest boots a minimal Linux kernel, mounts
+the repository block device, starts rest-server, and serves HTTP over virtio-net.
+Nothing else connects the guest to the host.
+
+The security advantage is not memory safety — Kata's agent (Rust) and shim (Go) are
+already memory-safe. What this path eliminates is an **entire protocol**: the
+ttrpc/RPC state machine that the host-side `kata-shim-v2` must parse on every guest
+response. Logic bugs, unexpected state transitions, and deserialization-confusion
+vulnerabilities do not require a memory-unsafe language to exist. Removing the
+protocol removes the class of bug, regardless of implementation language.
+
+#### 1. What Changes vs Path A
+
+```text
+                              Path A (Kata)           Path B (Bare FC)
+───────────────────────────────────────────────────────────────────────
+Host-guest channel            vsock + ttrpc            virtio-blk + virtio-net ONLY
+Host process parsing          kata-shim-v2 (ttrpc      Firecracker VMM (virtio
+  guest-controlled data         response parser)         device emulation only)
+Guest-to-host escape          KVM/FC exploit            KVM/FC exploit
+  without VM escape?            OR shim logic bug         ONLY — no other channel
+Agent Policy needed?          Yes (guest-internal)      No (no agent exists)
+Exec/logs/cp                  Denied by OPA policy      Structurally impossible
+vsock configured?             Yes (ttrpc transport)     No — not configured at all
+```
+
+> [!IMPORTANT]
+> The honest version of the claim is "fewer distinct channels for the host to parse
+> untrusted input from," not "safer language." Kata was never the unsafe-language
+> option to begin with.
+
+#### 2. Component Inventory — Reused vs Custom
+
+```text
+Component          Source                          Custom work required
+──────────────────────────────────────────────────────────────────────
+Guest kernel       Firecracker CI config           make vmlinux; may need
+                   resources/guest_configs/          config edits for your
+                                                     TAP/namespace model
+Rootfs             Alpine minimal + rest-server    ~30 lines of script;
+                   + working init                    expect iteration on
+                                                     init-system wiring
+Firecracker API    6 raw HTTP PUT calls            ~50 lines bash; no
+                                                     firectl dependency
+Network            Section 12 TAP/namespace        Carries over unchanged
+SELinux            Same class as Kata Step 2       Domain transition policy
+                                                     for firecracker_t
+Readiness probe    TCP connect loop                ~20 lines bash (new)
+Crash detection    Host-side timeout + kill FC     ~10 lines bash (new)
+```
+
+The genuinely custom parts are the rootfs-baking script and the readiness/crash-
+detection glue — both small, bounded, and inspectable. The kernel, Firecracker binary,
+API protocol, jailer, and network plumbing are reused from documented, tested recipes.
+
+#### 3. Guest Kernel Build
+
+Use the Firecracker team's production-grade kernel configuration as a starting point.
+This is a reused recipe, not new design — but "one command" compresses some
+prerequisite work.
+
+```bash
+# Obtain kernel source at a version Firecracker tests against
+git clone --depth 1 --branch v6.1.x \
+  https://git.kernel.org/pub/scm/linux/kernel/git/stable/linux.git
+cd linux
+
+# Copy Firecracker's recommended config
+cp /path/to/firecracker/resources/guest_configs/microvm-kernel-ci-x86_64-6.1.config .config
+
+# If your TAP/namespace model needs additional kernel options, edit now:
+#   make menuconfig
+# Common additions for the Vault network model:
+#   CONFIG_NETFILTER=y, CONFIG_BRIDGE=y, etc.
+# Expect at least one config review, not zero.
+
+# Build toolchain: gcc, make, flex, bison, libelf-dev (or RHEL equivalents)
+make vmlinux -j$(nproc)
+# Result: ./vmlinux (uncompressed, ~10 MB)
+```
+
+**Kernel updates:** when a kernel CVE is disclosed, repeat the build with the patched
+source. There is no `dnf update kernel` inside the guest — the kernel is a static
+artifact you rebuild and redeploy.
+
+#### 4. Rootfs — Minimal ext4 with rest-server
+
+Build a minimal ext4 filesystem image containing only rest-server and a working init.
+No shell, no package manager, no SSH:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+IMG=rootfs.ext4
+SIZE=128M   # adjust as needed
+
+# Create sparse ext4 image
+truncate -s $SIZE "$IMG"
+mkfs.ext4 -F "$IMG"
+
+MOUNT=$(mktemp -d)
+sudo mount -o loop "$IMG" "$MOUNT"
+
+# Minimal directory structure
+sudo mkdir -p "$MOUNT"/{bin,sbin,dev,proc,sys,etc/init.d,data,tmp}
+
+# Init — use a static busybox or tini
+sudo cp /path/to/busybox-static "$MOUNT/bin/busybox"
+sudo ln -s /bin/busybox "$MOUNT/sbin/init"
+
+# rest-server binary (statically linked)
+sudo cp /path/to/rest-server "$MOUNT/bin/rest-server"
+
+# Init script: mount filesystems, configure network, start rest-server
+sudo tee "$MOUNT/etc/init.d/rcS" > /dev/null << 'INIT'
+#!/bin/busybox sh
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sysfs /sys
+/bin/busybox mount -t devtmpfs devtmpfs /dev
+
+# Mount the data block device (second virtio-blk drive)
+/bin/busybox mount /dev/vdb /data
+
+# Static network — no DHCP, no agent, no runtime configuration
+/bin/busybox ip addr add 172.16.0.2/24 dev eth0
+/bin/busybox ip link set eth0 up
+/bin/busybox ip route add default via 172.16.0.1
+
+# Start rest-server (foreground, PID 1 child)
+exec /bin/rest-server --listen :8000 --path /data --append-only --no-auth
+INIT
+sudo chmod +x "$MOUNT/etc/init.d/rcS"
+
+sudo umount "$MOUNT"
+rmdir "$MOUNT"
+echo "Built $IMG"
+```
+
+> [!WARNING]
+> **Init-system wiring is the common first-attempt failure.** The init system must be
+> a real, working, **statically linked** binary at `/sbin/init` that Firecracker's
+> kernel can exec. If the rootfs boots to a kernel panic with "No working init found,"
+> the init binary is missing, not executable, or dynamically linked against absent
+> libraries. Budget for iteration, not a single clean pass.
+
+Network configuration is embedded statically in the init script. This aligns with the
+`internetworking_model = none` approach discussed in H4.1.1 Step 6 — no agent
+configures the network; IP and route are constants baked into the rootfs.
+
+**Rootfs updates:** when rest-server is updated, rebuild the image. There is no
+`dnf update` or `pkg upgrade` inside the guest.
+
+#### 5. Firecracker Jailer + Raw HTTP API — No Agent, No Shim
+
+Start the MicroVM using Firecracker's jailer and raw HTTP PUT calls. Do not use
+`firectl` — it lacks full feature parity with Firecracker, is positioned as a
+reference client of the Go SDK rather than a hardened production CLI, and adds a
+component-trust dependency inconsistent with this project's philosophy (the same
+reasoning that excluded fwknop). The six raw calls are fully auditable and lose
+nothing.
+
+**Jailer (mandatory for production):**
+
+```bash
+firecracker-jailer \
+  --id rest-pc \
+  --exec-file /usr/local/bin/firecracker \
+  --uid 65534 --gid 65534 \
+  --chroot-base-dir /srv/jailer \
+  --netns /var/run/netns/vault-pc
+  # Jailer provides: chroot, cgroup v2, seccomp (embedded allowlist),
+  #   network namespace, uid/gid drop.
+  # Do not use --no-seccomp in production.
+```
+
+**VM configuration (6 HTTP calls, no 7th):**
+
+```bash
+FC_SOCK="/srv/jailer/firecracker/rest-pc/root/run/firecracker.socket"
+
+# 1. Kernel
+curl --unix-socket "$FC_SOCK" -X PUT http://localhost/boot-source \
+  -d '{
+    "kernel_image_path": "vmlinux",
+    "boot_args": "console=ttyS0 reboot=k panic=1 pci=off 8250.nr_uarts=0 init=/sbin/init"
+  }'
+
+# 2. Rootfs (read-only)
+curl --unix-socket "$FC_SOCK" -X PUT http://localhost/drives/rootfs \
+  -d '{
+    "drive_id": "rootfs",
+    "path_on_host": "rootfs.ext4",
+    "is_root_device": true,
+    "is_read_only": true
+  }'
+
+# 3. Data disk (pc.img — repository block device, read-write)
+curl --unix-socket "$FC_SOCK" -X PUT http://localhost/drives/data \
+  -d '{
+    "drive_id": "data",
+    "path_on_host": "/var/lib/vault-rhel/repos/pc.img",
+    "is_root_device": false,
+    "is_read_only": false
+  }'
+
+# 4. Network (TAP device from Section 12 namespace)
+curl --unix-socket "$FC_SOCK" -X PUT http://localhost/network-interfaces/eth0 \
+  -d '{
+    "iface_id": "eth0",
+    "host_dev_name": "tap-pc",
+    "guest_mac": "AA:FC:00:00:00:01"
+  }'
+
+# 5. No vsock — intentionally omitted.
+#    There is no PUT /vsock call.
+#    The guest has no persistent channel to the host beyond virtio-net.
+
+# 6. Start
+curl --unix-socket "$FC_SOCK" -X PUT http://localhost/actions \
+  -d '{"action_type": "InstanceStart"}'
+```
+
+`8250.nr_uarts=0` disables the serial console in production (prevents unbounded
+resource consumption). Rate limiters for `virtio-net` and `virtio-blk` should be
+configured via their respective API endpoints if resource-exhaustion DoS from a
+compromised guest is a concern.
+
+> [!IMPORTANT]
+> **"6 HTTP calls and you're running" only covers starting the VM, not knowing when
+> it's usable.** With no agent, the host has no health RPC to query. Readiness
+> detection and crash recovery (Step 6 below) are real pieces of logic you must write.
+
+#### 6. Readiness Detection and Crash Recovery
+
+With no guest agent, the host cannot query a health RPC. Two host-side mechanisms are
+required:
+
+**Readiness probe** — TCP connect loop to rest-server's port through the same
+network path the workload already uses:
+
+```bash
+TIMEOUT=30
+INTERVAL=1
+ELAPSED=0
+while ! nc -z 172.16.0.2 8000 2>/dev/null; do
+  sleep $INTERVAL
+  ELAPSED=$((ELAPSED + INTERVAL))
+  if [ $ELAPSED -ge $TIMEOUT ]; then
+    echo "FATAL: rest-server not ready within ${TIMEOUT}s — killing Firecracker"
+    kill "$(cat /var/run/firecracker-rest-pc.pid)"
+    exit 1
+  fi
+done
+echo "rest-server is ready"
+```
+
+**Crash detection** — if the guest kernel panics during boot, nothing tells the host.
+The readiness timeout above doubles as crash detection: if the TCP probe never
+succeeds within the timeout, the Firecracker process is killed and the ceremony fails
+closed. For runtime crashes after readiness succeeds, Caddy's upstream health checks
+detect the loss and the ceremony's signed hard-stop timer remains the final ceiling.
+
+**Debugging a failed boot:** if a rebuilt rootfs fails to boot, there is no SSH
+fallback. Debug by inspecting the image offline (loopback mount on the host) or by
+temporarily re-enabling the serial console (`8250.nr_uarts=1` in boot args) to capture
+kernel output — then removing it before production use.
+
+**Systemd integration:** wrap the jailer invocation, readiness probe, and crash
+timeout in a systemd unit with `Type=exec` and `WatchdogSec=` as a secondary
+heartbeat mechanism.
+
+#### 7. SELinux Policy
+
+This is the same class of work as H4.1.1 Step 2 — defining a MAC policy for the
+Firecracker VMM process on the RHEL host. The jailer's own seccomp + chroot + cgroup
+isolation runs underneath SELinux as an independent layer.
+
+Follow the same empirical workflow:
+
+1. Identify the Firecracker process domain via `ps -eZ | grep firecracker`
+2. Scope permissive mode for that domain (`semanage permissive -a <firecracker_domain_t>`)
+3. Exercise the full workload (boot, backup, teardown)
+4. Review denials with `audit2allow -w -a`
+5. **Critical host-side MAC test** — verify cross-repository isolation:
+   ```bash
+   sudo runcon -t <firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/phone.img
+   ```
+   This **must** result in an `AVC Denial`.
+6. Compile, load (`semodule -i`), remove permissive scope (`semanage permissive -d`)
+
+The domain transition from the parent process (systemd or a wrapper) to the
+Firecracker domain must be explicitly permitted:
+
+```text
+type_transition vault_launcher_t firecracker_exec_t : process firecracker_t;
+allow vault_launcher_t firecracker_t : process transition;
+allow firecracker_t firecracker_exec_t : file { entrypoint execute };
+allow firecracker_t kvm_device_t : chr_file { open read write ioctl };
+```
+
+Repeat the SELinux capture process after Firecracker binary updates, not just major
+version changes.
+
+#### 8. Shared Hardening (Same as Path A)
+
+The following protections from H4.1.1 apply identically to Path B:
+
+- **Disk Usage Gate & Host-Level Enforcement** (H4.1.1 Step 4): 85% threshold,
+  `chattr +i` on `.img` files when threshold is crossed. Do not start the MicroVM.
+- **Host Filesystem Mount Restrictions** (H4.1.1 Step 5): `noexec,nodev,nosuid` on
+  the repository dataset. Even a VMM breakout cannot execute a written binary on the
+  host.
+
+#### 9. Update Pipeline — The Recurring Tax
+
+Every component update requires manual rebuild and redeploy:
+
+```text
+rest-server update  → rebuild rootfs.ext4 → restart MicroVM
+kernel CVE          → rebuild vmlinux (+ rootfs if needed) → restart MicroVM
+Firecracker update  → replace binary + jailer → restart MicroVM
+Caddy update        → rebuild Caddy rootfs → restart Caddy MicroVM
+cert rotation       → rebuild Caddy rootfs → restart Caddy MicroVM
+```
+
+There is no `dnf update` inside the guest, no SSH fallback, and no `podman exec` to
+inspect a running VM. If a rebuilt rootfs fails to boot, debugging requires offline
+image inspection or temporary serial console.
+
+This is the real ongoing cost relative to Path A's `dnf update kata-containers` and
+Podman image pulls. It is manageable when updates are scripted into a reproducible
+build pipeline, but it is a **recurring commitment, not a one-time setup cost.** Every
+rest-server or kernel bump means rebuild-rootfs, rebuild-kernel-if-needed, redeploy,
+with no interactive fallback if something goes wrong.
+
+> [!IMPORTANT]
+> **Open Items for Local Verification (Before Implementation)**
+> - **Init System:** Determine the init binary for the guest rootfs (busybox init,
+>   tini, or a custom static binary). The init must be statically linked or have all
+>   its dependencies present in the rootfs.
+> - **Kernel Config Audit:** Verify that the stock Firecracker CI config supports
+>   the TAP/namespace model from Section 12 without additional options. Document any
+>   edits required.
+> - **Readiness Script:** Finalize the TCP health check + crash timeout
+>   implementation and its systemd unit integration.
+> - **Static Network Config:** Confirm the static IP/route values that will be
+>   embedded in the guest init script, matching the Section 12 namespace layout.
+> - **Caddy Config Delivery:** Determine how to embed Caddyfile and TLS certificates
+>   into the Caddy rootfs (see H4.3.2).
+> - **Build Toolchain:** Install the kernel build toolchain (`gcc`, `make`, `flex`,
+>   `bison`, `elfutils-libelf-devel` on RHEL 9) on the build host. This is a build
+>   dependency, not a runtime dependency on the RHEL backup server.
+
+### H4.1.3 MicroVM Path Decision — Feasibility Spike
+
+Do not commit either path into the production CORE baseline without first running a
+bounded feasibility spike. Use the same disposable cloud instance with nested-KVM
+support that is already being provisioned for the Agent Policy testing described in
+H4.1.1 Step 6.
+
+#### Spike scope
+
+Boot rest-server under bare Firecracker on the test instance and complete a real
+end-to-end data path:
+
+```text
+1. Build guest kernel from Firecracker CI config     → vmlinux exists?
+2. Build minimal rootfs with rest-server + init      → VM boots to init?
+3. Attach data block device (test .img)              → rest-server sees /data?
+4. Attach TAP in a test network namespace            → HTTP reachable from host?
+5. Run a real restic backup through Caddy→rest-server→ data integrity check passes?
+6. Host-side readiness probe works                   → TCP connect succeeds after boot?
+7. Crash detection works                             → host kills FC after panic?
+```
+
+The spike is successful if steps 1–7 complete on real hardware. Document which
+Firecracker CI kernel config edits were needed (if any) and how many rootfs
+iterations the init-system wiring required.
+
+#### Decision criteria
+
+```text
+Criterion                          Path A (Kata)     Path B (Bare FC)
+───────────────────────────────────────────────────────────────────────
+Host-guest parse channel           vsock + ttrpc     virtio only
+OCI/containerd ecosystem           ✅ native         ❌ not applicable
+Rootfs/kernel update mechanism     dnf update        manual rebuild
+Readiness detection                agent health RPC  TCP probe (custom)
+Guest-internal API hardening       Agent Policy      N/A (no agent)
+Debug access (exec/logs/cp)        denied by policy  structurally absent
+Feasibility spike required?        no (Kata ships)   YES — must pass
+Recurring maintenance tax          lower             higher
+```
+
+#### Outcome
+
+- **Spike succeeds → evaluate Path B** for production, accepting the recurring
+  rebuild tax. Path A remains a tested fallback.
+- **Spike fails or requires excessive custom work → stay on Path A** with the
+  Agent Policy lockdown already documented in H4.1.1 Step 6.
+- **Regardless of outcome:** the feasibility spike itself is cheap (one disposable
+  instance, a few hours) and the answer is worth knowing before committing either
+  direction into CORE.
 
 ### H4.2 Complete the backend systemd confinement
+
 
 Add the following lines to **both** rootless rest-server units:
 
@@ -12319,7 +12752,63 @@ sudo runcon -t <caddy_firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/pho
 ```
 Both **must** result in an `AVC Denial`.
 
+### H4.3.2 Advanced Hardening: Containerized Caddy via Bare Firecracker (Path B)
+
+If you have chosen bare Firecracker (Path B) for the rest-server MicroVM, apply the
+same approach to Caddy. Instead of the Kata/Podman invocation in H4.3.1, Caddy runs
+inside its own dedicated Firecracker MicroVM with no agent, no shim, and no vsock.
+
+#### 1. Caddy Guest Rootfs
+
+Build a second minimal ext4 rootfs containing only Caddy and a working init:
+
+```text
+/sbin/init          → minimal init (busybox or tini)
+/usr/bin/caddy      → Caddy binary (statically linked)
+/etc/caddy/         → Caddyfile embedded at build time
+/etc/certs/         → TLS certificates embedded at build time
+```
+
+Caddy's configuration and TLS certificates are embedded into the **read-only** rootfs
+image at build time. There is no runtime config injection, no bind mount, and no
+shared filesystem — the config is immutable once baked. Certificate rotation requires
+a rootfs rebuild and MicroVM restart.
+
+Static network configuration is embedded in the init script, exactly as described for
+rest-server in H4.1.2 Step 4.
+
+#### 2. Firecracker API + Jailer
+
+Use the same raw HTTP API pattern from H4.1.2 Step 5. Caddy's MicroVM needs:
+
+- `boot-source`: Same guest kernel as rest-server (shared `vmlinux`)
+- `drives/rootfs`: Caddy-specific read-only rootfs (no data drive — Caddy has no
+  repository)
+- `network-interfaces/eth0`: TAP device in the appropriate network namespace
+
+No `PUT /vsock` call — intentionally omitted. Caddy does not need a data block device;
+it only terminates TLS and reverse-proxies to rest-server over the namespace network.
+
+#### 3. Readiness Detection
+
+Apply the same host-side TCP readiness probe from H4.1.2 Step 6, targeting Caddy's
+HTTPS listen port instead of rest-server's HTTP port.
+
+#### 4. SELinux and Host-Side MAC
+
+Perform the same host-side SELinux workflow as H4.1.2 Step 7. The Firecracker process
+running Caddy's VM must be denied access to both repository images:
+
+```bash
+sudo runcon -t <caddy_firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/pc.img
+sudo runcon -t <caddy_firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/phone.img
+```
+
+Both **must** result in an `AVC Denial`. Caddy's guest has no legitimate reason to
+touch the repository at all.
+
 ### H4.4 Capacity guard
+
 
 Replace the `[Service]` section of
 `vault-rhel-capacity-guard.service` with:
