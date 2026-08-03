@@ -1774,6 +1774,18 @@ ARCHITECTURE REDESIGN REQUIRED
 
 until an equivalent independent ceremony is restored.
 
+> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** Default MFA for both AWS IAM Identity
+> Center and Authelia/Tailscale is TOTP. TOTP carries 1-in-1,000,000 theoretical
+> predictability per window and is phishing-susceptible. When a FIDO2 hardware security
+> key becomes available, upgrade in this priority order:
+> 1. AWS root / recovery admin account MFA (break-glass path, single-approver)
+> 2. AWS IAM Identity Center Vault user MFA (daily ceremony path)
+> 3. Authelia/Tailscale OIDC MFA (network access layer)
+>
+> Note: the daily backup ceremony is already protected by dual-VPS Ed25519 signatures
+> regardless of MFA method. The recovery path (priority 1) benefits most from
+> a FIDO2 upgrade because it lacks that dual-signature protection.
+
 ---
 
 # 20. DynamoDB Daily-Slot Revalidation

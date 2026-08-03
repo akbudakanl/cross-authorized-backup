@@ -485,6 +485,11 @@ storage behavior or AWS restore process changes.
 drill; record restic version, restore tier, time, and cost; no routine cold subset check
 claim.
 
+**[OPTIONAL UPGRADE — YubiKey / FIDO2]:** The MFA protecting this restore path is
+currently TOTP-based. Because this is a single-approver break-glass path (not protected
+by the dual-VPS ceremony), it represents the highest-value target for a FIDO2 hardware
+security key. If only one YubiKey is available, assign it here first.
+
 **Residual:** archive service delay and evolving experimental client behavior.
 
 **Status:** must be operationally tested.
@@ -538,6 +543,14 @@ path across both security compartments.
 break-glass store; separate VPS provider accounts/providers where practical; separate
 FIDO-backed or compartment-specific SSH credentials; exact SSH host-key fingerprints;
 separate `devices:core` credentials; cross-signing private keys never co-located.
+
+**[OPTIONAL UPGRADE — YubiKey / FIDO2]:** "Multiple FIDO root MFA devices" and
+"FIDO-backed SSH credentials" above describe the target state. In the current default
+layout, TOTP is used instead of FIDO2/WebAuthn where YubiKey hardware is unavailable.
+When a FIDO2 hardware security key becomes available, upgrade in this priority order:
+(1) AWS root / recovery admin account MFA, (2) AWS IAM Identity Center Vault user MFA,
+(3) Authelia/Tailscale OIDC MFA. See the corresponding `[OPTIONAL UPGRADE]` blocks in
+`Vault_Zero_Trust_Master_Guide_CORE.md` Sections 22.6 and 24.7 for configuration steps.
 
 **Residual:** one shared provider owner account or one physical FIDO token holding both
 SSH credentials remains an explicitly documented shared failure domain if the operator

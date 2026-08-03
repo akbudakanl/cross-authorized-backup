@@ -185,6 +185,15 @@ have a live authenticated `s3` phase so that the opposite VPS will sign the same
 payload. Do not turn either phase helper into an always-on daemon or pre-authorize the
 absent primary.
 
+> **Cross-device key custody model:** The VPS signing key for the PC compartment is
+> stored on the Phone, and the VPS signing key for the Phone compartment is stored on
+> the PC. The transfer of signing material (CSR → signed certificate) uses QR codes
+> out-of-band so the private key is never transmitted over the network during the
+> signing ceremony — but both primary devices are themselves networked devices. The
+> security guarantee is not air-gapping but **cross-device custody**: a single
+> compromised device cannot access the private key that belongs to its own compartment,
+> because that key is held on the other device.
+
 During a legitimate joint session malware on one endpoint may share the
 already-authorized window while the backup is incomplete. After a successful restic
 completion has been independently observed in S3, the completion revoker cuts off the
@@ -1053,6 +1062,18 @@ permissions remain capped by its own bucket and fixed egress envelope.
 
 Enable IAM Identity Center and require MFA for the dedicated Vault user. Create two
 one-hour permission sets:
+
+> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** The default documented layout uses TOTP
+> (Time-based One-Time Password) for AWS IAM Identity Center MFA. TOTP provides
+> 1-in-1,000,000 theoretical predictability per window and is phishing-susceptible.
+> If a FIDO2 hardware security key (e.g. YubiKey 5 Series or any FIDO2-certified
+> token) becomes available, replace TOTP with WebAuthn/FIDO2 as the MFA method in
+> IAM Identity Center. WebAuthn private keys are hardware-bound, cannot be phished
+> (origin binding prevents replay on fake domains), and cannot be extracted from the
+> token. Assign one key to the PC identity and a separate key (or the same physical
+> key stored separately) to the Phone identity. This upgrade does not change any other
+> part of the ceremony — the dual-VPS Ed25519 requirement remains the primary
+> authorization barrier regardless of MFA method strength.
 
 ```text
 Vault-PC-Gate-Invoke
@@ -6595,6 +6616,15 @@ retain the current Authelia/OIDC authentication model, create separate Tailscale
 client/issuer arrangements for the two compartment tailnets and keep the authenticator
 material off PC, Phone, both VPSs, and RHEL.
 
+> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** Authelia natively supports WebAuthn
+> (FIDO2) as a second factor alongside TOTP. If a FIDO2 hardware security key is
+> available, configure Authelia to require WebAuthn for the Vault Tailscale OIDC
+> flow in place of TOTP. Each compartment (PC tailnet / Phone tailnet) should use a
+> separate Authelia user account with its own registered FIDO2 credential. Keep the
+> physical security key off the VPS and off the primary devices during normal
+> operation. This upgrade eliminates TOTP phishing risk on the network-access layer;
+> the dual-VPS signature requirement is not affected by this change.
+
 Do not tag the human primary endpoints merely to make API automation easier without
 reviewing key-expiry behavior: Tailscale disables key expiry by default for tagged
 devices after authentication. The primary devices are intended to be user-authenticated
@@ -11196,7 +11226,12 @@ A normal day is intentionally simple:
 
 ```text
 1. Ensure the RHEL server is powered on and booted if using on-demand power.
-2. Prepare the configured MFA factor for each device identity (prefer phishing-resistant FIDO/passkey; if using the documented cross-device TOTP layout, keep each seed only on the opposite primary).
+2. Prepare the configured MFA factor for each device identity.
+   Current default: TOTP (seed for PC identity stored on Phone; seed for Phone identity
+   stored on PC — cross-device custody, not air-gapped).
+   [OPTIONAL UPGRADE — YubiKey / FIDO2]: replace TOTP with a FIDO2 hardware security
+   key for both AWS IAM Identity Center and Authelia/Tailscale MFA. See Sections 22.6
+   and 24.7 for upgrade guidance.
 3. Confirm PC Tailscale is logged out/expired from the previous ceremony as expected.
 4. Confirm Phone is in the Phone tailnet and **Allow incoming connections** is OFF.
 5. Start PC `vault-daily-pc`.
@@ -11243,6 +11278,13 @@ restic upgrades:
 
 ```text
 1. Use the separate MFA-protected recovery permission path with RestoreObject.
+   [OPTIONAL UPGRADE — YubiKey / FIDO2]: the recovery/admin permission path is the
+   highest-value target for a FIDO2 hardware security key. Unlike the daily backup
+   flow (which is protected by dual-VPS Ed25519 regardless of MFA strength), the
+   recovery path is an exceptional single-approver route. Replacing its TOTP factor
+   with a FIDO2 token bound to the AWS root or admin account provides phishing-
+   resistant protection at the most critical break-glass point. This should be the
+   first assignment if only one YubiKey is available.
 2. Follow the currently tested restic `s3-restore` recovery procedure.
 3. Restore a canary snapshot to an isolated temporary directory.
 4. Compare expected canary hashes/content.

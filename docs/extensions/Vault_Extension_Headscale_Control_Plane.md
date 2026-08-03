@@ -537,6 +537,14 @@ The core Vault expects the primary-device enrollment/sign-in ceremony to require
 browser-mediated authentication rather than a reusable pre-auth key stored on the
 primary device.
 
+> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** This section documents TOTP-based MFA as
+> the default second factor for Authelia. Authelia also supports WebAuthn (FIDO2)
+> natively. If a FIDO2 hardware security key is available, configure `authelia.yml`
+> to prefer WebAuthn over TOTP for the Vault Tailscale OIDC user in each compartment.
+> WebAuthn eliminates TOTP phishing risk and adds hardware-binding. Keep the physical
+> key off both VPSs during normal operation. The dual-VPS Ed25519 ceremony is
+> unaffected by this upgrade.
+
 Use a separate OIDC client in each compartment:
 
 ```text
