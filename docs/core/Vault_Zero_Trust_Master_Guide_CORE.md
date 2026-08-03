@@ -12377,8 +12377,17 @@ sudo tee "$MOUNT/etc/init.d/rcS" > /dev/null << 'INIT'
 mkdir -p /auth
 /bin/busybox wget -q -O - http://169.254.169.254/latest/meta-data/htpasswd > /auth/htpasswd
 
-# Start rest-server (foreground, PID 1 child)
-exec /bin/rest-server --listen :8000 --path /data --append-only --htpasswd-file /auth/htpasswd
+# Start rest-server with Zero-Tolerance Auth Failure monitoring (PID 1)
+# Any 401 Unauthorized log is treated as an active compromise.
+/bin/rest-server --listen :8000 --path /data --append-only --htpasswd-file /auth/htpasswd 2>&1 | while read -r line; do
+  echo "$line"
+  if echo "$line" | grep -qiE "401|unauthorized"; then
+    echo "CRITICAL: Auth failure detected. Halting MicroVM."
+    date > /data/.SECURITY_ALERT_AUTHFAIL
+    # Self-halt the VM immediately
+    poweroff -f
+  fi
+done
 INIT
 sudo chmod +x "$MOUNT/etc/init.d/rcS"
 
@@ -12516,7 +12525,23 @@ echo "rest-server is ready"
 **Crash detection** — if the guest kernel panics during boot, nothing tells the host.
 The readiness timeout above doubles as crash detection: if the TCP probe never
 succeeds within the timeout, the Firecracker process is killed and the ceremony fails
-closed. For runtime crashes after readiness succeeds, Caddy's upstream health checks
+closed. 
+
+**Zero-Tolerance Intrusion Detection (Host-Side):**
+After the Firecracker process terminates (whether normally, via crash, or via the in-guest auth-failure self-halt), the host must mount the `pc.img` block device to inspect for the `.SECURITY_ALERT_AUTHFAIL` flag. If this file exists, trigger a highest-severity alarm (SNS/PagerDuty).
+
+> [!IMPORTANT]
+> **Host-Side Independence:** While the in-guest `poweroff` is fast, it is ultimately a "best-effort" defense that a deeply compromised guest could theoretically suppress. You MUST implement a completely guest-independent, out-of-band active connection monitor in the host's network namespace. This slow but absolute "source of truth" cannot be bypassed by the guest:
+
+```bash
+# Periodic host-side validation in the namespace
+ss -antp -N /var/run/netns/vault-pc "( src :8000 )" | awk 'NR>1 {print $4}' | grep -v "172.16.0.3" && {
+  echo "CRITICAL ALARM: Unauthorized IP connected to rest-server bypassing Caddy!"
+  # Trigger full incident response
+}
+```
+
+For runtime crashes after readiness succeeds, Caddy's upstream health checks
 detect the loss and the ceremony's signed hard-stop timer remains the final ceiling.
 
 **Debugging a failed boot:** if a rebuilt rootfs fails to boot, there is no SSH

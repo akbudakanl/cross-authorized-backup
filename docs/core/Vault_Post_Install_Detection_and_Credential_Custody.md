@@ -3514,3 +3514,24 @@ Tailscale package version
 
 A RHEL 9 -> RHEL 10 migration or x86_64 <-> aarch64 shape migration is a planned
 platform migration and must generate a new evidence tuple and hardening baseline.
+
+## 2. MicroVM Intrusion Detection & Zero-Tolerance Authentication
+
+> **Context**: The `rest-server` MicroVM utilizes an ephemeral `.htpasswd` injected dynamically via Firecracker MMDS on every boot. Because this credential is never typed by a human and is exclusively known to the automated Caddy proxy, any `401 Unauthorized` response is deterministically an active compromise attempt, not a typo. 
+
+This zero-tolerance philosophy eliminates the need for classic "N failures in T seconds" (`fail2ban`) thresholds. The threshold is exactly 1. To enforce this, the detection plane operates across two independent layers:
+
+### Layer 1: In-Guest Best-Effort (Fast Response)
+The `rest-server` binary is wrapped in a monitoring loop that reads `stderr`. Upon detecting the first `401` or `Unauthorized` log, the wrapper:
+1. Writes a `.SECURITY_ALERT_AUTHFAIL` timestamp file to the already-mounted `/data` block device.
+2. Immediately executes `poweroff -f` to self-halt the MicroVM and kill any suspicious connections.
+
+### Layer 2: Host-Side Absolute Truth (Slow but Guest-Independent)
+> [!IMPORTANT]
+> **Why Layer 2 is Mandatory:** The in-guest response (Layer 1) is fast, but it is fundamentally a "best-effort" defense. A deeply compromised guest could theoretically suppress its own logs, prevent the `poweroff`, or avoid writing the alert flag. 
+> 
+> Therefore, you **MUST NEVER bypass the Host-Side Layer**. It is slow, but it operates outside the guest's control boundary, making it the absolute "source of truth".
+
+The Host-Side Layer relies on two out-of-band checks:
+1. **Post-Mortem Flag Inspection**: When the Firecracker process terminates (either naturally, via crash, or via the in-guest halt), the host mounts the data block device and checks for the `.SECURITY_ALERT_AUTHFAIL` flag. If found, a full capacity alarm is raised.
+2. **Out-of-Band Network Namespace Observation**: A host-side monitor (e.g., cron or systemd timer) periodically runs `ss -antp` inside the `vault-pc` network namespace to inspect active connections to port 8000. If the source IP does not match the Caddy MicroVM (e.g., `172.16.0.3`), the alarm is triggered immediately. This completely ignores what the guest reports and relies purely on host-level networking truths.
