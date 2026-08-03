@@ -12217,6 +12217,8 @@ e) Negative tests
      AP-NEG-04 │ restic backup via Caddy     │ succeeds         │
      AP-NEG-05 │ podman stop (no SignalProc) │ RemoveContainer  │
                │                             │ forced teardown  │
+     AP-NEG-06 │ rest-server direct connect  │ blocked by       │
+               │ (bypassing Caddy)           │ nftables / 401   │
 
 f) internetworking_model = none optimization
      If the namespace/TAP architecture is compatible with static guest
@@ -12371,8 +12373,12 @@ sudo tee "$MOUNT/etc/init.d/rcS" > /dev/null << 'INIT'
 /bin/busybox ip link set eth0 up
 /bin/busybox ip route add default via 172.16.0.1
 
+# Fetch ephemeral .htpasswd from Firecracker MMDS
+mkdir -p /auth
+/bin/busybox wget -q -O - http://169.254.169.254/latest/meta-data/htpasswd > /auth/htpasswd
+
 # Start rest-server (foreground, PID 1 child)
-exec /bin/rest-server --listen :8000 --path /data --append-only --no-auth
+exec /bin/rest-server --listen :8000 --path /data --append-only --htpasswd-file /auth/htpasswd
 INIT
 sudo chmod +x "$MOUNT/etc/init.d/rcS"
 
@@ -12453,8 +12459,16 @@ curl --unix-socket "$FC_SOCK" -X PUT http://localhost/network-interfaces/eth0 \
   -d '{
     "iface_id": "eth0",
     "host_dev_name": "tap-pc",
-    "guest_mac": "AA:FC:00:00:00:01"
+    "guest_mac": "AA:FC:00:00:00:01",
+    "allow_mmds_requests": true
   }'
+
+# 4.5. MMDS Dynamic Credential Injection (Ephemeral htpasswd)
+# Generate a fresh ephemeral bcrypt credential on the host for this ceremony
+EPHEMERAL_HTPASSWD=$(generate_bcrypt_hash) # External helper function
+curl --unix-socket "$FC_SOCK" -X PUT http://localhost/mmds \
+  -H "Content-Type: application/json" \
+  -d "{\"latest\": {\"meta-data\": {\"htpasswd\": \"$EPHEMERAL_HTPASSWD\"}}}"
 
 # 5. No vsock — intentionally omitted.
 #    There is no PUT /vsock call.
@@ -12546,7 +12560,10 @@ allow firecracker_t kvm_device_t : chr_file { open read write ioctl };
 Repeat the SELinux capture process after Firecracker binary updates, not just major
 version changes.
 
-#### 8. Shared Hardening (Same as Alternative Path)
+#### 8. Shared Hardening & Network Isolation (Nftables)
+
+**Host-Side Namespace Isolation:**
+Since `rest-server` is now exposed on the `vault-pc` network namespace via a TAP interface, it must be protected from lateral movement. Apply an `nftables` rule inside the host's `vault-pc` network namespace to restrict traffic to `rest-server`'s port (8000) exclusively to the Caddy MicroVM's IP (e.g., 172.16.0.3), dropping all other requests.
 
 The following protections from H4.1.1 apply identically to Primary Path:
 
