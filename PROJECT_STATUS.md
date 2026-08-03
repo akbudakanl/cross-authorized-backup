@@ -1,8 +1,6 @@
-# Project Status: Archived
+# Project Status: Pre-Deployment
 
 Note: This repository is a Proof of Concept (PoC) created purely for educational purposes to explore a zero-trust approach to backup infrastructure design, emphasizing identity-plane compartmentalization and immutability over perimeter-based defense.
-
-**Date:** 2026-08-01
 
 ## Current Phase
 
