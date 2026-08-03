@@ -39,6 +39,7 @@ The current architecture explores an uncompromising defense-in-depth model acros
 * ciphertext-only RHEL storage in the core baseline
 * independent detection and credential-custody controls
 * zero-tolerance intrusion detection
+* detection evasion via ruleset disclosure
 
 The threat model is particularly concerned with compromised-endpoint abuse and backup or recovery-path corruption patterns associated with advanced ransomware-style operations.
 
@@ -109,6 +110,10 @@ To achieve quantum resistance for the authorization plane in the future, the arc
 - **Hybrid Approach:** A transition period should use a hybrid signature (e.g., Ed25519 + ML-DSA) where AWS Lambda/RHEL require both to be valid, providing protection against both quantum threats and potential mathematical flaws in the new PQC algorithms.
 
 *(Note: The actual backup data is encrypted by restic using AES-256, which is symmetric and remains highly resistant to quantum attacks via Grover's algorithm.)*
+
+## Detection Philosophy & Customization
+
+**REMINDER:** The detection system in this project is designed as a reference and intentionally left simple. It is critical for security that users develop their own unique signal/behavioral detection systems or customize their thresholds. Kerckhoffs's principle cannot be directly applied to static detection rules that lack a "key space"; therefore, making individual modifications by deviating from generic documentation is a primary defense component. For more details, see the `docs/core/Vault_Post_Install_Detection_and_Credential_Custody.md` document.
 
 ## Status
 
