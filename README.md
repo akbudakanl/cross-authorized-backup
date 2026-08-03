@@ -2,9 +2,8 @@
 
 An experimental multi-endpoint backup security architecture built around **cross-authorization, bounded backup sessions, and independently enforced backup controls**.
 
-The project explores a specific security question:
-
-> How can a backup system limit the ability of a single compromised source endpoint to continuously abuse backup credentials, interact with backup infrastructure, or attempt recovery-path corruption?
+The project is architected with a core threat-model vision:
+To prevent a single compromised source endpoint from continuously abusing backup credentials, interacting with core infrastructure, or attempting recovery-path corruption.
 
 The architecture adapts **dual-control, separation-of-duties, and multi-party authorization principles** to a personal-scale, endpoint-oriented backup environment.
 
@@ -14,22 +13,32 @@ The design is not an implementation of a specific enterprise multi-party approva
 
 ## Design Themes
 
-The current architecture explores:
+The current architecture explores an uncompromising defense-in-depth model across cryptography, hardware isolation, cloud boundaries, and threat detection:
 
-* client-side encrypted restic repositories
-* independent PC and phone security compartments
+* hybrid post-quantum authorization (Ed25519 + ML-DSA / FIPS 204)
+* session-level PQC verification boundaries
+* optional post-quantum tunnel confidentiality (ML-KEM / FIPS 203 or Rosenpass)
+* network-agnostic application-layer mutual pre-authentication
 * live cross-authorization for fresh backup sessions
 * dual infrastructure signatures
-* fixed, non-renewable backup session deadlines
+* ephemeral session-bound symmetric keys (no persistent shared secrets)
+* independent PC and phone security compartments
+* hardware-isolated MicroVMs (Primary: Bare Firecracker | Alternative: Kata Containers)
+* zero-vsock, network-only IPC
+* immutable, statically-linked rootfs
+* ephemeral MMDS credential injection
+* Tailscale with Tailnet Lock
 * short-lived AWS credentials
 * fail-closed daily credential issuance limits
+* fixed, non-renewable backup session deadlines
+* separate S3 buckets and IAM roles
 * successful-completion-triggered S3 session containment
 * signed cross-compartment close signaling
-* separate S3 buckets and IAM roles
+* client-side encrypted restic repositories
 * append-only backup ingestion
 * ciphertext-only RHEL storage in the core baseline
-* Tailscale with Tailnet Lock
 * independent detection and credential-custody controls
+* zero-tolerance intrusion detection
 
 The threat model is particularly concerned with compromised-endpoint abuse and backup or recovery-path corruption patterns associated with advanced ransomware-style operations.
 
@@ -108,7 +117,7 @@ To achieve quantum resistance for the authorization plane in the future, the arc
 **Experimental / pre-deployment architecture**
 
 Architecture baseline established: **2026-03-26**  
-Latest security-design revision: **2026-08-02**
+Latest security-design revision: **2026-08-03**
 
 The current design has undergone extensive architecture and threat-model review.
 
