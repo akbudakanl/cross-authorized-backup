@@ -90,13 +90,11 @@ During architecture review, the project evolved after examining a different prob
 
 This question gradually shifted the design from a conventional personal backup deployment toward a threat-model-driven backup authorization architecture.
 
-## Personal Design Philosophy & Archival Purpose
-
-This repository represents a highly opinionated, personal architecture tailored to a specific set of security assumptions, hardware constraints, and operational preferences (such as physical console administration without remote SSH).
-
-Rather than serving as a turn-key, one-size-fits-all product for general distribution, this repository functions primarily as:
-1. **A Personal Infrastructure Archive & Blueprint:** A persistent, version-controlled reference to ensure deterministic disaster recovery and track architectural evolution over time.
-2. **An Educational Case Study:** An exploration of applying zero-trust, dual-control, and micro-VM isolation principles to personal-scale 3-2-1 backup infrastructure.
+### Design Philosophy & Architectural Scope
+This repository represents a highly opinionated zero-trust architecture tailored to stringent security assumptions, strict hardware constraints, and specialized operational models (such as physical console administration with zero remote SSH execution).
+Rather than offering a generic, turn-key product for one-size-fits-all distribution, this codebase functions primarily as:
+* **A Production-Grade Reference Architecture:** A persistent, version-controlled blueprint designed for deterministic disaster recovery and strict infrastructure governance.
+* **An Advanced Educational Case Study:** A practical exploration of applying post-quantum cryptography, dual-control authorization, and hardware-isolated MicroVM boundaries to personal-scale 3-2-1 backup systems.
 
 Others are welcome to study, adapt, or draw inspiration from the design decisions documented here.
 
@@ -129,7 +127,7 @@ However, it has not yet completed:
 * long-term operational validation
 * S3 cold-storage recovery drills
 
-This repository currently serves as a private architecture archive and future engineering record.
+This repository serves as a production-grade reference architecture and engineering blueprint.
 
 It is not a turnkey secure backup product and makes no production-readiness claim.
 
