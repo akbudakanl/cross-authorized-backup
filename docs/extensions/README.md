@@ -11,6 +11,7 @@ This directory contains optional architecture extensions, alternative configurat
 | [Endpoint Monitoring During Pre-Auth Process](Vault_Extension_Endpoint_Monitoring_During_Pre_Auth_Process.md) | `pending` | Advanced endpoint detection during the open-gate backup window. |
 | [Headscale Control Plane](Vault_Extension_Headscale_Control_Plane.md) | `rejected` | Security considerations and extra infrastructure requirements (no Tailnet Lock). |
 | [Host Level Containment](Vault_Extension_Host_Level_Containment.md) | `integrated` | Advanced hardening natively integrated via Firecracker microVMs. |
+| [L4 Connection Enforcement via SPA](Vault_Extension_L4_Connection_Enforcement_via_SPA.md) | `rejected` | Rendered obsolete by Bare Firecracker architecture; conflicts with host minimal attack surface principles. |
 | [Mutual Backup](Vault_Extension_Mutual_Backup.md) | `rejected` | Security reasons (unwanted inbound connections). |
 | [OOB Notification Routing](Vault_Extension_OOB_Notification_Routing.md) | `accepted` | Mandatory for security but pending completion of detection/notification systems. |
 | [Offline CA and Console Lockdown](Vault_Extension_Offline_CA_and_Console_Lockdown.md) | `integrated` | Architecture natively integrated into the Core structure. |
