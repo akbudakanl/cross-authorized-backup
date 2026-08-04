@@ -1,0 +1,38 @@
+version: 2
+
+updates:
+  # ── Go modules ───────────────────────────────────────────────────────────────
+  # Monitors go.mod / go.sum in the coordinator package.
+  # No external dependencies exist today; Dependabot will start opening PRs
+  # automatically as soon as any are added.
+  - package-ecosystem: "gomod"
+    directory: "/src/coordinator"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "go"
+    commit-message:
+      prefix: "deps(go)"
+
+  # ── GitHub Actions ────────────────────────────────────────────────────────────
+  # Keeps any Actions workflow dependencies (uses: owner/action@vX) up to date.
+  # No workflows exist today; this activates automatically once .github/workflows/
+  # files are added.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "deps(actions)"
