@@ -28,6 +28,83 @@ Level 3 — "How do I derive my own non-public detection layer?"
 
 ---
 
+## Detection Technique Coverage
+
+The reference implementation deliberately combines two detection paradigms in a
+way that matches the structural properties of this specific system. Understanding
+why each was chosen — and where anomaly-based detection would add genuine value
+— helps calibrate what to prioritize when personalizing the detection layer.
+
+### Event-Driven Detection: Well-Covered
+
+The AWS-side detection plane is event-driven by design, and this is the right
+choice for the signals this system produces:
+
+| Detector | Trigger |
+|---|---|
+| VaultSlotWatch | DynamoDB Stream INSERT — fires on slot consumption |
+| VaultStsWatch | CloudTrail → EventBridge — fires on `AssumeRole` |
+| VaultCompletionPolicyWatch | CloudTrail → EventBridge — fires on `PutRolePolicy` |
+| VaultAuditWatch | Scheduled poll — compares audit log against actor allowlist |
+| Canary / honeytoken | File/credential access — 100% binary tripwire |
+
+Event-driven detection is appropriate here because the highest-value security
+events in this architecture are **discrete, low-frequency, and binary**: a slot
+was consumed or it was not; a config mutation occurred or it did not; a canary
+was touched or it was not. There is no continuous behavioral stream to model —
+one backup session per day per device is the expected workload, and deviations
+from that pattern are already structurally constrained by the authorization
+model (dual-signature gates, issuance limits, fixed deadlines).
+
+### Anomaly-Based Detection: Intentionally Limited in the Reference
+
+The reference implementation is almost entirely rule/threshold-based rather
+than anomaly/statistical-based. This is a deliberate trade-off, not an
+oversight, and it is appropriate for this scale.
+
+Anomaly-based detection requires a baseline — a history of "normal" behavior
+against which current observations are compared. For a system with highly
+predictable, low-volume patterns (one backup per day, two devices, fixed IAM
+role boundaries), the signals most worth monitoring are binary rather than
+continuous, and a baseline adds implementation complexity without proportional
+security value for those signals.
+
+There is also a practical second-order benefit: the Methodology document
+(Steps C and F) specifically points users toward adaptive/statistical baselines
+as the most Kerckhoffs-adjacent option available for detection — the baseline
+becomes a drifting, private value that an attacker cannot recover from the
+public architecture. **This is left as the user's own private implementation
+precisely because a published reference baseline would itself become a public
+attack map** — the same disclosure problem that applies to thresholds and
+weights applies equally to what a "normal" session looks like.
+
+### Where Anomaly-Based Detection Adds Genuine Value
+
+There is one category of signals in this architecture where statistical anomaly
+detection would fit naturally and is not covered by the reference
+implementation: **session behavioral signals**.
+
+* **Backup session duration** — a session that takes substantially longer or
+  shorter than historical sessions for the same device/data volume is a
+  behavioral anomaly that threshold-based detection cannot capture without a
+  fixed, published number.
+* **Data volume per session** — a significant deviation from rolling historical
+  volume (measured in z-score terms) is a meaningful signal, particularly for
+  detecting exfiltration-style behavior that deliberately stays below a fixed
+  ceiling.
+* **Timing of slot consumption within the day** — if sessions historically
+  begin within a consistent window and one begins far outside that window, the
+  deviation is a signal worth surfacing even if the session is otherwise
+  structurally valid.
+
+These signals are mentioned in the Methodology document's Step A (timing
+relationships, negative signals) as examples of signals the reference file did
+not use but that your own deployment may warrant. If you implement any of them,
+the resulting baseline belongs in your private configuration, not in any
+version-controlled file derived from this repository.
+
+---
+
 ## Important Note on Detection Design
 
 > [!IMPORTANT]
@@ -153,6 +230,75 @@ generally not public.
   example of the separation between architecture and parameter.
 * **Slight randomization:** Add small randomness to some timing/threshold
   parameters so the attacker cannot build a deterministic evasion strategy.
+
+---
+
+## Known Gaps and Extension Opportunities
+
+The following are areas where the reference implementation deliberately stops
+short and where a motivated user should invest effort first. These are not
+design failures — they are places where a published reference value would
+recreate the disclosure problem this directory exists to address, or where the
+complexity-to-value ratio is only favorable once you have real deployment data.
+
+### Session Behavioral Signals (Highest Priority Gap)
+
+The reference implementation has no anomaly detector for **backup session
+behavior**. All session-level signals are currently structural (did
+authorization succeed or fail?) rather than behavioral (did the session behave
+the way past sessions have?).
+
+Three signals in particular are well-suited to z-score-based anomaly detection
+and are absent from the reference:
+
+* **Session duration** — "this backup normally takes N minutes; this one took
+  3× that." A session that runs abnormally long may indicate data exfiltration
+  appended to a legitimate backup, interference with the restic process, or
+  network-level manipulation. A session that terminates abnormally fast may
+  indicate premature abortion or a suppressed failure.
+
+* **Data volume per session** — "this device's backup is normally Y GB; this
+  one transferred 10× that." A volume spike that stays below a hard ceiling
+  (which an attacker who has read the reference file would know) is invisible to
+  threshold-based detection but visible to a rolling baseline. This is
+  specifically the class of signal that z-score detection exists to catch.
+
+* **Slot consumption timing within the day** — "sessions for this device
+  historically start within a consistent window; today's started six hours
+  outside that window." A structurally valid session (all signatures present,
+  slot available) that occurs at an anomalous time is worth surfacing
+  independently of its structural validity.
+
+These signals are implied by the Methodology document's Step A categories
+("timing relationships between individually unremarkable events", "negative
+signals") but have no corresponding reference detector. Implementing them
+requires a few weeks of baseline data first — the rolling window is meaningless
+until you have real session history to compute it from. The resulting baseline
+parameters belong in private configuration, not in any version-controlled file
+in this repository.
+
+### VaultAuditWatch: Scheduled Poll vs. Adaptive Window
+
+The current VaultAuditWatch runs on a fixed five-minute schedule with a fixed
+lookback window. This is structurally fine but is the clearest example of a
+timing parameter that (a) is documented publicly and (b) could be improved by
+personalization. The schedule interval and the lookback multiplier are exactly
+the calibration values the Methodology's Step D table calls out as belonging in
+private config. Changing them from their reference values is one of the
+lowest-effort, highest-signal personalizations available.
+
+### Correlation Across Independent Detectors
+
+The reference detectors operate independently: VaultSlotWatch fires on
+slot consumption; VaultAuditWatch fires on config mutation. Neither knows what
+the other has seen. A correlation layer that asks "did an anomalous Tailscale
+config mutation occur within N minutes of a slot consumption?" would be a
+stronger combined signal than either detector alone, because it requires
+defeating two independent components simultaneously. The Methodology's Step C
+(conjunctive correlation) and Step B (independence analysis) describe exactly
+this pattern. No reference implementation exists for it because the correlation
+window and the identity of the "anomalous" config event are both calibration
+parameters that should not be published.
 
 ---
 
