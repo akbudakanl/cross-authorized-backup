@@ -170,6 +170,7 @@ Project work began before this Git repository was created.
 
 The repository was initialized after the first major architecture-review phase to preserve the July 2026 architecture baseline and track future deployment testing, failed assumptions, and design changes honestly.
 
-The 2026-07-16 completion-containment revision is intentionally preserved as a visible design change: the original architecture already prevented one endpoint plus its own MFA path from independently obtaining a fresh S3 session, but successful backup completion still relied too heavily on cooperative endpoint signaling for early closure. The revised design adds independently observed completion, role-session revocation, and signed cross-compartment close authority.
+The 2026-07-16 completion-containment revision is intentionally preserved as a visible design change: the original architecture already prevented one endpoint plus its own MFA path from independently obtaining a fresh S3 session, but successful backup completion still relied too heavily on cooperative endpoint signaling for early closure. The revised design adds independently observed completion, role-session revocation, and signed cross-compartment close authority. While routine changes can be accessed via commit logs, changes that directly affect the project's architectural structure will continue to be documented in the 'changes' folder.
 
-Future changes should be driven by measured deployment behavior, discovered failure modes, or materially changed security assumptions rather than feature accumulation.
+Future changes should be driven by measured deployment behavior, discovered failure modes, or materially changed security assumptions rather than feature accumulation. New features and architectural changes will be indicated with status information within the `extensions` folder.
+
