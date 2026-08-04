@@ -143,7 +143,10 @@ docs/
 ├── core/
 │   ├── Vault_Master_Guide.md
 │   ├── Vault_Threat_Model.md
-│   └── Vault_Detection_and_Credential_Custody.md
+│   └── Detection/
+│       ├── README.md
+│       ├── Vault_Post_Install_Detection_and_Credential_Custody.md
+│       └── Vault_Detection_Design_Methodology.md
 │
 ├── extensions/
 │   └── (See docs/extensions/README.md for the index of all extensions)
