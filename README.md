@@ -23,7 +23,7 @@ The current architecture explores an uncompromising defense-in-depth model acros
 * dual infrastructure signatures
 * ephemeral session-bound symmetric keys (no persistent shared secrets)
 * independent PC and phone security compartments
-* hardware-isolated MicroVMs (Primary: Bare Firecracker | Alternative: Kata Containers)
+* hardware-isolated MicroVMs (Primary: Bare Firecracker | Alternative: Kata Containers via Podman)
 * zero-vsock, network-only IPC
 * immutable, statically-linked rootfs
 * ephemeral MMDS credential injection
