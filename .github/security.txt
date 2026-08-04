@@ -1,0 +1,8 @@
+# Security contact information for Cross-Authorized Backup
+# Format: RFC 9116 (https://www.rfc-editor.org/rfc/rfc9116)
+
+Contact: mailto:security.unplanned639@passinbox.com
+Encryption: https://keys.openpgp.org/search?q=security.unplanned639@passinbox.com
+Preferred-Languages: tr, en, de
+Policy: https://github.com/USERNAME/cross-authorized-backup/blob/main/SECURITY.md
+Expires: 208/04/27 23:57:08 GMT+3

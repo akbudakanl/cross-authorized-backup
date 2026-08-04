@@ -4,6 +4,14 @@ This document explains how to privately report a vulnerability in the
 Cross-Authorized Backup project, what issues are in scope, and what information
 to include so the report can be acted on efficiently.
 
+> [!CAUTION]
+> **If you arrived here via GitHub's "Report a vulnerability" form — please
+> stop and send an encrypted e-mail instead.**
+> GitHub's advisory channel does not provide end-to-end encryption. Encrypted
+> e-mail is the preferred and more private channel for this project.
+> Instructions are in the [Preferred channel](#preferred-channel--encrypted-e-mail) section below.
+> Only use this form if encrypted e-mail is genuinely not an option for you.
+
 ---
 
 ## Reporting a Vulnerability
@@ -13,23 +21,38 @@ to include so the report can be acted on efficiently.
 > Public disclosure before a fix is available undermines the threat model this
 > project is built on and may expose adopters before they can respond.
 
-### Preferred channel — GitHub Private Security Advisories
+### Preferred channel — Encrypted e-mail
+
+Send your report to the contact address listed on the maintainer's GitHub
+profile. End-to-end encryption is required.
+
+**How to send an encrypted report:**
+
+- **If you use a privacy-focused e-mail provider** (e.g., Proton Mail, Tuta):
+  your messages are already E2EE by default when sending to another address on
+  the same provider, or via their standard encrypted send flow. No extra steps
+  needed — just compose and send.
+
+- **If you use a standard e-mail provider** (Gmail, Outlook, etc.):
+  your messages are not E2EE in transit. Use PGP to encrypt before sending.
+
+  Public key: <https://keys.openpgp.org/search?q=security.unplanned639@passinbox.com>
+
+  Fingerprint: verify against the key fetched from the keyserver above before
+  encrypting. Do not send sensitive details unencrypted.
+
+### Fallback — GitHub Private Security Advisories
+
+> [!WARNING]
+> **Please try encrypted e-mail first.** This channel does not provide
+> end-to-end encryption. Your report is confidential within GitHub's
+> infrastructure but is not cryptographically protected against GitHub itself.
+
+Only use this if encrypted e-mail is genuinely not an option for you:
 
 1. Go to the **Security** tab of this repository.
-2. Click **"Report a vulnerability"** (GitHub's private advisory workflow).
+2. Click **"Report a vulnerability"**.
 3. Fill in the advisory form and submit.
-
-Your report is visible only to repository maintainers and is never published
-unless we jointly agree on a disclosure timeline.
-
-If you cannot access GitHub's advisory workflow for any reason, fall back to
-encrypted e-mail (see below).
-
-### Fallback — Encrypted e-mail
-
-Send a PGP-encrypted message to the maintainer's contact address listed in the
-repository profile. If no PGP key is listed yet, request one through GitHub's
-private advisory mechanism before sending sensitive details.
 
 ---
 
