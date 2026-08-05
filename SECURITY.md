@@ -36,7 +36,7 @@ profile. End-to-end encryption is required.
 - **If you use a standard e-mail provider** (Gmail, Outlook, etc.):
   your messages are not E2EE in transit. Use PGP to encrypt before sending.
 
-  Public key: <https://keys.openpgp.org/search?q=security.unplanned639@passinbox.com>
+  [![PGP Key](https://img.shields.io/badge/PGP-Key-blue?style=flat-square&logo=gnuprivacyguard)](https://keys.openpgp.org/search?q=security.unplanned639@passinbox.com)
 
   Fingerprint: verify against the key fetched from the keyserver above before
   encrypting. Do not send sensitive details unencrypted.
