@@ -24,19 +24,12 @@ to include so the report can be acted on efficiently.
 ### Preferred channel — Encrypted e-mail
 
 Send your report to the contact address listed on the maintainer's GitHub
-profile. End-to-end encryption is required.
+profile. 
 
-**How to send an encrypted report:**
+> [!NOTE]
+> End-to-end encryption is required. Use PGP to encrypt before sending.
 
-- **If you use a privacy-focused e-mail provider** (e.g., Proton Mail, Tuta):
-  your messages are already E2EE by default when sending to another address on
-  the same provider, or via their standard encrypted send flow. No extra steps
-  needed — just compose and send.
-
-- **If you use a standard e-mail provider** (Gmail, Outlook, etc.):
-  your messages are not E2EE in transit. Use PGP to encrypt before sending.
-
-  [![PGP Key](https://img.shields.io/badge/PGP-Key-blue?style=flat-square&logo=gnuprivacyguard)](https://keys.openpgp.org/search?q=security.unplanned639@passinbox.com)
+  [F46C 0F0B D707 0F79 907E 4D85 25D5 F85B 8362 7D9D](https://keys.openpgp.org/search?q=security.unplanned639@passinbox.com)
 
   Fingerprint: verify against the key fetched from the keyserver above before
   encrypting. Do not send sensitive details unencrypted.
