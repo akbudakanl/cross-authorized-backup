@@ -46,3 +46,22 @@ To efficiently sync a 50GB+ `.img` file without copying the entire file every da
 - **Delta Efficiency:** Restic perfectly handles the block-level changes inside the `.img` files, only copying the new megabytes of data instead of copying the whole 50GB file.
 - **Blast Radius Containment:** Even if the MicroVM is fully compromised and the `.img` is corrupted, the RHEL Host safely backs up the corrupted blob to the USB without ever knowing it's corrupted. The RHEL Host remains pristine.
 
+## Trust Model of the External Drive
+
+This extension targets users who want a **totally self-hosted** setup — no cloud services, no third-party infrastructure, no network-attached storage requiring additional trust decisions. Every component is physically under your control.
+
+### TOFU Coverage
+
+The external drive is covered by the same TOFU (Trust On First Use) model that governs all other devices in this architecture (PC, Phone, RHEL server). This means the drive is granted an initial trust upon its first connection and is thereafter treated as a known, trusted entity within the system's cryptographic and policy framework.
+
+> [!IMPORTANT]
+> **Exclusive RHEL Attachment Requirement:** While the external drive is initially trusted, it should only ever be physically connected to the RHEL backup server — not to the PC, phone, or any other machine. Connecting it to a different device would unnecessarily widen the trust boundary and could expose the stored `.img` blobs (even if opaque) to an untrusted environment, undermining the isolation this architecture relies on.
+
+### The Drive Is Not a Transport Channel
+
+It is essential to understand the role of the external drive within this threat model:
+
+**The external drive does not act as a transport channel or relay.** It is not a conduit through which data flows between two active endpoints. It is purely a **passive, additional storage unit** — a third physical copy of the already-encrypted, already-opaque `.img` blobs that the RHEL Host has already received and stored. No device other than RHEL reads from or writes to it as part of the normal backup workflow.
+
+> [!NOTE]
+> **Alternative: Second Internal Disk.** The external USB hard drive is the recommended approach for this extension due to its physical portability and off-shelf availability. However, a **second internal disk installed directly in the RHEL server** is a functionally and architecturally equivalent alternative. Both choices result in the same security properties: a physically separate storage medium, exclusive to the RHEL server, that holds opaque `.img` files without any filesystem parsing or active network routing.

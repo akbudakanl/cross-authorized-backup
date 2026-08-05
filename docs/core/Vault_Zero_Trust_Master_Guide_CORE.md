@@ -342,6 +342,11 @@ Phone plaintext
 > 
 > This perfectly handles block-level changes efficiently without copying massive files daily. Even if a MicroVM is compromised and the `.img` is corrupted, the RHEL Host safely backs up the corrupted blob to the USB without interpreting it, keeping the Host pristine.
 >
+> **Trust Model of the External Drive (TOFU Scope)**
+> The external drive is covered by the same TOFU (Trust On First Use) model that applies to all other devices in this architecture. This model is introduced in full detail in `Vault_Extension_Totally_Self_Hosted_321_Backup_Strategy.md` and is present here in the core guide as the default configuration. For security, the external drive should be treated as initially trusted — but beyond that initial trust grant, it must remain **exclusively connected to the RHEL server**. Connecting it to any other machine (e.g., a PC or phone) widens the trust boundary unnecessarily.
+>
+> It is also important to clarify the role of the external drive within the threat model: **the drive is not a transport channel.** It does not actively relay or route any data between devices. It functions purely as an additional passive storage unit — a third physical copy of the already-opaque `.img` blobs. As an alternative with equivalent security properties, a **second internal disk** installed in the RHEL server could also have been used here instead of an external USB drive.
+>
 > [!NOTE]
 > **Prune Limitation:** Pruning is not possible when transferring data from the client (phone/computer) into the MicroVMs on the RHEL server because doing so would require either removing the `--append-only` flag or storing restic keys on the server. Since we accept neither compromise, pruning is currently not applied. HOWEVER, pruning can be applied when synchronizing the `.img` file from the RHEL Host to an external USB drive via restic, as there is no password at this stage. (To be detailed in the future)
 
