@@ -12,6 +12,7 @@ sequence.
 |-------|----------|---------|
 | **1** | [Vault_Post_Install_Detection_and_Credential_Custody.md](Vault_Post_Install_Detection_and_Credential_Custody.md) | **Reference implementation.** Describes the specific AWS-side detection plane, alert mechanisms, canary patterns, credential custody rules, and acceptance tests that form the project's baseline detection layer. After reading this document you will understand *what* the detection system monitors, *where* each detector lives, and *how* it is deployed. |
 | **2** | [Vault_Detection_Design_Methodology.md](Vault_Detection_Design_Methodology.md) | **Generative methodology.** Provides a repeatable eight-step process for turning the reference implementation into a personal, structurally-different detection layer. After applying this document you will have your own private calibration, signal weighting, and canary placement — artifacts that live outside this repository. |
+| **3** | [Vault_Incident_Response_Roadmap.md](Vault_Incident_Response_Roadmap.md) | **Post-containment continuation.** Picks up where §21/§6A.7 of the Post-Install document stop — eradication validation, recovery gating, and post-incident review. |
 
 A reader who completes both documents in order progresses through three levels:
 
@@ -24,6 +25,9 @@ Level 2 — "How is each detector built and tested?"
 
 Level 3 — "How do I derive my own non-public detection layer?"
          (Design Methodology, Steps A–H)
+
+Level 4 — "Containment worked. Now what?"
+         (Incident Response Roadmap, Sections 1–7)
 ```
 
 ---
@@ -299,6 +303,10 @@ defeating two independent components simultaneously. The Methodology's Step C
 this pattern. No reference implementation exists for it because the correlation
 window and the identity of the "anomalous" config event are both calibration
 parameters that should not be published.
+
+### Incident Response: Eradication, Recovery, and Post-Incident Activity (Structural Gap)
+
+The Post-Install Detection document already defines Containment-level first response per alert (§21, §6A.7). What is not yet defined is what happens after containment: eradication validation (confirming root cause is actually removed, not merely contained), a recovery gate (what must hold true before Vault operations resume), and post-incident review (root-cause writeup and resulting detection-rule updates). Unlike the three gaps above — which deepen the existing Identification-phase detectors — this gap spans a different NIST SP800-61 phase boundary and is tracked separately in Vault_Incident_Response_Roadmap.md.
 
 ---
 
