@@ -14,7 +14,7 @@ sequence.
 | **2** | [Vault_Detection_Design_Methodology.md](Vault_Detection_Design_Methodology.md) | **Generative methodology.** Provides a repeatable eight-step process for turning the reference implementation into a personal, structurally-different detection layer. After applying this document you will have your own private calibration, signal weighting, and canary placement — artifacts that live outside this repository. |
 | **3** | [Vault_Incident_Response_Roadmap.md](Vault_Incident_Response_Roadmap.md) | **Post-containment continuation.** Picks up where §21/§6A.7 of the Post-Install document stop — eradication validation, recovery gating, and post-incident review. |
 
-A reader who completes both documents in order progresses through three levels:
+A reader who completes the documents in order progresses through four levels:
 
 ```text
 Level 1 — "Which events matter and why?"

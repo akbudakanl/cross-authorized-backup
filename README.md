@@ -139,14 +139,22 @@ It is not a turnkey secure backup product and makes no production-readiness clai
 ## Repository Structure
 
 ```text
+PROJECT_STATUS.md
+SECURITY.md
+CONTRIBUTING.md
+.github/
+src/
+└── coordinator/            Coordinator protocol development scaffold (Go)
 docs/
 ├── core/
-│   ├── Vault_Master_Guide.md
-│   ├── Vault_Threat_Model.md
+│   ├── Vault_Zero_Trust_Master_Guide_CORE.md
+│   ├── Threat Modeling/
+│   │   └── Vault_Threat_Model_and_Risk_Register.md
 │   └── Detection/
 │       ├── README.md
 │       ├── Vault_Post_Install_Detection_and_Credential_Custody.md
-│       └── Vault_Detection_Design_Methodology.md
+│       ├── Vault_Detection_Design_Methodology.md
+│       └── Vault_Incident_Response_Roadmap.md
 │
 ├── extensions/
 │   └── (See docs/extensions/README.md for the index of all extensions)
@@ -156,6 +164,8 @@ docs/
 │   └── Vault_Deployment_Time_Revalidation_Checklist.md
 │
 └── changes/
+    ├── Virtiofsd Hardening and Zero Trust Updates.md
+    ├── Vault_PQC_Auth_Process_Changelog.md
     └── Vault_2026-07-16_STS_Completion_Revocation_CHANGELOG.md
 ```
 
@@ -166,6 +176,16 @@ Extensions document optional trust-model or operational changes and are not enab
 Operational documents cover deployment-time revalidation and device lifecycle procedures.
 
 Change records preserve material security-design corrections separately from the core source of truth. They document why an architectural assumption changed; they do not replace the current core guides.
+
+### Note on `src/coordinator`
+
+`src/coordinator` is a small **development scaffold**, not a deployable implementation. It exists to prototype the coordinator's process split (gVisor listener → Unix socket → verifier) and its fixed-delimiter packet framing. It is intentionally incomplete and must **not** be built, deployed, or treated as a reference implementation:
+
+* Signature verification and phase-token checks are stubbed (responses contain `MOCK_SIG`; peer signatures are parsed but never verified).
+* If `/etc/vault-device/coordinator.env` is absent, it falls back to permissive development defaults (mock config, listeners bound to all interfaces).
+* It does not implement the coordinator behavior documented in the core guide.
+
+The authoritative coordinator specification — including proof issuance, close-payload validation, target/deadline/freshness checks, and its acceptance tests — is embedded in Section 23.4 of `docs/core/Vault_Zero_Trust_Master_Guide_CORE.md`. That document is the single source of truth for this component.
 
 ## Project History
 

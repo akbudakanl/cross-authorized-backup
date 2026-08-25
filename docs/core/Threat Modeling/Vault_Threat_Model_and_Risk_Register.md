@@ -11,7 +11,7 @@ accepts.
 The core implementation is:
 
 ```text
-Vault_Zero_Trust_Master_Guide_CORE_TAILSCALE_OUTBOUND_ONLY_NO_PRUNE.md
+Vault_Zero_Trust_Master_Guide_CORE.md
 ```
 
 The mandatory post-install production-entry profile is:

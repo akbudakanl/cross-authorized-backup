@@ -164,8 +164,8 @@ server-side and independent of a cooperative endpoint.
    admission.
 22. Local `DONE s3`, peer close, AWS role-session revocation, and the signed one-hour
    deadline are ordered containment layers. No endpoint can use `DONE` to open or extend
-   a session, and suppressing `DONE` does not preserve the S3 Alternative Pathfter a successful
-   backup has been independently observed.
+    a session, and suppressing `DONE` does not preserve the S3 path after a successful
+    backup has been independently observed.
 ```
 
 Phone S3 is symmetric and uses a different Lambda, daily slot, role, bucket, VPS egress
@@ -185,14 +185,16 @@ have a live authenticated `s3` phase so that the opposite VPS will sign the same
 payload. Do not turn either phase helper into an always-on daemon or pre-authorize the
 absent primary.
 
-> **Cross-device key custody model:** The VPS signing key for the PC compartment is
-> stored on the Phone, and the VPS signing key for the Phone compartment is stored on
-> the PC. The transfer of signing material (CSR → signed certificate) uses QR codes
-> out-of-band so the private key is never transmitted over the network during the
-> signing ceremony — but both primary devices are themselves networked devices. The
-> security guarantee is not air-gapping but **cross-device custody**: a single
-> compromised device cannot access the private key that belongs to its own compartment,
-> because that key is held on the other device.
+> **Cross-device custody model:** The Vault Ed25519 signing private keys are generated
+> on, and never leave, their owning VPS (`vault-pc` / `vault-phone`). No primary device
+> ever stores a VPS signing key (Sections 22.3 and 23.3; threat-model asset A3 and
+> invariant I-16). Single-endpoint resistance rests on three independent factors:
+> (1) each endpoint holds only its own 256-bit phase token; (2) the second signature
+> can be produced only by the opposite VPS, and only while the opposite primary
+> maintains a live authenticated phase socket; (3) SSO/MFA is assumed unavailable to
+> malware on the requesting endpoint. Cross-device custody applies to identity factors
+> only: each device's TOTP seed is stored on the opposite device, and the Phone acts as
+> the offline SSH certificate authority for VPS administration.
 
 During a legitimate joint session malware on one endpoint may share the
 already-authorized window while the backup is incomplete. After a successful restic
@@ -278,6 +280,7 @@ fails closed. There is no “connect directly to S3 without the VPS” fallback 
 [ ] No PC↔Phone Vault data-plane grant or receiver exists.
 [ ] Each VPS has a different Ed25519 signing private key.
 [ ] One VPS alone cannot produce a valid dual-signed S3/RHEL proof.
+[ ] No VPS signing private key material exists on either primary device.
 [ ] PC and Phone use different S3 buckets, roles, Lambda gates, and daily slots.
 [ ] SSO gate-invoke roles cannot call S3 or AssumeRole directly.
 [ ] Lambda consumes the slot before one non-retried AssumeRole attempt.
@@ -1287,7 +1290,7 @@ This restriction applies only to credential creation. After one credential is
 successfully issued, restic/S3 request retries, reconnects, and transient data-plane
 retries are allowed with that **same credential only while the backup is incomplete,
 the completion state has not reached `REVOKED`, and the signed hard deadline remains
-open**. A successful backup is expected to lose both its VPS admission Alternative Pathnd its old
+open**. A successful backup is expected to lose both its VPS admission and its old
 role-session permissions before the one-hour maximum.
 
 ### 22.7A Deploy the device-specific S3 completion revokers
@@ -1655,7 +1658,7 @@ export const handler = async (event) => {
   const calendarDate = event?.calendar_date;
   const sessionExpiresAt = event?.session_expires_at;
   if (!['pc', 'phone'].includes(device)) fail('device must be pc or phone');
-  if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(calendarDate ?? '')) fail('invalid calendar_date');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(calendarDate ?? '')) fail('invalid calendar_date');
   const deadline = new Date(sessionExpiresAt);
   if (typeof sessionExpiresAt !== 'string' || Number.isNaN(deadline.valueOf())) fail('invalid session_expires_at');
 
@@ -2316,7 +2319,7 @@ aws s3api put-bucket-policy \
 
 Do not replace the policies with `Principal: "*"` deny rules unless you fully understand
 the condition logic. An accidental broad deny can lock out the administrator/recovery
-Alternative Paths well.
+paths as well.
 
 #### 22.12.7 Give each Lambda role only `PutItem` and its one `AssumeRole`
 
@@ -3467,7 +3470,7 @@ For the actual BYOI import, use the Oracle-documented RHEL custom-image path:
 Do not import an `x86_64` image and try to launch it on Ampere, or import an `aarch64`
 image and try to launch it on the AMD shape.
 
-OCI imported RHEL images use the BYOI/custom-image Alternative Pathnd paravirtualized launch mode.
+OCI imported RHEL images use the BYOI/custom-image path and paravirtualized launch mode.
 Licensing remains the operator's Red Hat BYOL responsibility.
 
 Immediately after first boot, on each VPS:
@@ -6534,7 +6537,7 @@ The VPS exact-host S3 proxy remains Tailnet-only; its reserved public IPv4 is us
 This managed-DERP baseline is preferred for the Tailscale variant because it removes
 three public relay/STUN listener classes from each Vault VPS. Tailscale-hosted DERP is
 still a relay of WireGuard end-to-end encrypted tailnet traffic. The trade-off is
-performance: DERP is a TCP relay Alternative Pathnd can be materially slower than direct UDP or a
+performance: DERP is a TCP relay and can be materially slower than direct UDP or a
 well-placed Peer Relay for large restic transfers.
 
 
@@ -8385,7 +8388,7 @@ https://PHONE_RHEL_TS_IP:8002 {
 }
 ```
 
-Use the same positive REST method/Alternative Pathllowlist. The allowlist narrows parser/request
+Use the same positive REST method allowlist. The allowlist narrows parser/request
 surface; `rest-server --append-only` remains the authoritative repository-mutation
 restriction.
 
@@ -12784,7 +12787,7 @@ TasksMax=50
 UMask=0077
 ```
 
-Retain each service's own config, certificate/key, state, and log Alternative Pathllowlists. Do not
+Retain each service's own config, certificate/key, state, and log allowlists. Do not
 give either Caddy unit access to:
 
 ```text
@@ -12824,7 +12827,7 @@ podman run -d \
 > directory-sharing hypervisor. Two candidate mechanisms need local verification before
 > this is settled: (a) a second small, read-only raw block image containing the config/certs,
 > mounted the same way the repository image is; (b) Kata's native small-file config-injection
-> Alternative Patht VM start, if supported for this Kata/Firecracker version. Do not treat either as
+> at VM start, if supported for this Kata/Firecracker version. Do not treat either as
 > confirmed until tested.
 
 #### 2. Apply the Secure SELinux Policy Generation Workflow

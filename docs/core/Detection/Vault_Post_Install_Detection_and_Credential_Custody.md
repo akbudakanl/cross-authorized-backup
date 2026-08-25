@@ -4,7 +4,7 @@
 > **Status: mandatory production-entry stage for the core Vault baseline.**
 >
 > Apply this guide **after** completing
-> `Vault_Zero_Trust_Master_Guide_CORE_TAILSCALE_OUTBOUND_ONLY_NO_PRUNE.md`
+> `Vault_Zero_Trust_Master_Guide_CORE.md`
 > and its day-zero correctness tests, but **before** treating the system as production.
 > This is not one of the four architecture extensions. It does not change the backup
 > topology. It adds an independent detection plane, alert health checks, evidence

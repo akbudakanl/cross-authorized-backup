@@ -31,7 +31,7 @@ This repository is currently maintained by a single developer. To balance operat
 
 Before a PR can be merged, it must meet the following criteria:
 
-* **Architectural Consistency:** Changes must explicitly align with the threat boundaries, TOFU state assumptions, and zero-trust principles defined in `docs/core/Vault_Threat_Model.md`.
+* **Architectural Consistency:** Changes must explicitly align with the threat boundaries, TOFU state assumptions, and zero-trust principles defined in `docs/core/Threat Modeling/Vault_Threat_Model_and_Risk_Register.md`.
 * **No Unsolicited Scope Expansion:** Architectural alterations or new protocol implementations must be discussed prior to PR submission.
 * **Clean History:** Commits should be logical and clean. Commits may be squashed upon merging to maintain a deterministic project history.
 * **Conversation Resolution:** All review comments and discussions must be marked as resolved.
