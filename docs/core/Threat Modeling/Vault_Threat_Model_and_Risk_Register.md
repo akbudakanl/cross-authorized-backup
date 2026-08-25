@@ -397,13 +397,22 @@ midnight. Each device has its own slot. Detection/containment latency still matt
 **Scenario:** attacker produces excessive object/request operations rather than only
 large files.
 
-**Controls:** daily issuance rate; hard STS expiry; fixed source IP; example configurable
-USD 2 monthly budget; email; automatic deny attached to both backup roles.
+**Controls:** daily issuance rate; hard STS expiry; fixed source IP; mandatory counting
+S3 egress proxy with session and calendar-day request quotas (Section 23.6A); example
+configurable USD 2 monthly budget; email; automatic deny attached to both backup roles.
 
 **Residual:** AWS billing/budget data is delayed and budget actions are not real-time
-hard caps. Costs can exceed the threshold before containment applies.
+hard caps. Costs can exceed the threshold before containment applies. Because budget
+telemetry lags issuance, a second device/day ceremony can occur before the budget deny
+attaches; the practical worst case spans more than one issuance window. In-session
+minimal-size request flooding is bounded by the Section 23.6A session and calendar-day
+request quotas once the counting proxy is deployed and its validation gate passes;
+until that gate is recorded, the vector remains bounded only by the signed deadline
+and the fixed egress path.
 
-**Status:** mitigated by prevention + delayed containment + detection.
+**Status:** mitigated by prevention + rate limits + delayed containment + detection;
+in-session request flooding is bounded by the mandatory Section 23.6A quotas pending
+the recorded validation gate.
 
 ### T-10 — Daily slot consumed before legitimate operator session
 
@@ -686,6 +695,11 @@ When enabling an extension:
 2026-07-16 | S3-CLOSE | Fresh S3 OPEN still requires both live primaries + two VPS signatures
            |          | + own MFA. Successful snapshot + later lock release now triggers
            |          | exact-role STS revocation and clean-opposite signed peer close.
+2026-08-25 | S3-QUOTA | Mandatory counting TLS-terminating S3 egress proxy with session/
+           |          | calendar-day request quotas added as core Section 23.6A
+           |          | (8000/session, 12000/day; observe-mode calibration required
+           |          | before enforcement). Binds the T-09 minimal-PUT flood vector;
+           |          | per-compartment proxy CA key added to modeled VPS-root loss.
 ```
 
 ## 9. Security decision summary

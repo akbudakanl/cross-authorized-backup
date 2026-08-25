@@ -308,6 +308,7 @@ fails closed. There is no “connect directly to S3 without the VPS” fallback 
 [ ] Tailscale-hosted DERP works on the real restrictive network when direct UDP does not.
 [ ] The mandatory systemd/Podman service-confinement stage has been applied and its negative tests pass.
 [ ] Both VPS custom Go daemons run as dedicated non-root users with reviewed DAC permissions and effective systemd sandboxing.
+[ ] Counting S3 egress proxy (Section 23.6A) is deployed with calibrated request quotas; its quota negative tests pass.
 [ ] The mandatory post-install detection/custody guide has been applied.
 [ ] Daily-slot stream alerting, Tailscale AuditWatch WIF, STS caller validation, and detector-blind alarms pass their tests.
 [ ] AuditWatch stores no persistent Tailscale audit secret and has only logs:configuration:read.
@@ -6114,6 +6115,159 @@ Phone: http://VPS_TS_IP:8888   in the Phone tailnet
 Because the tailnets are separate, these identical addresses resolve to different
 machines/routing domains.
 
+### 23.6A Mandatory counting S3 egress proxy (request quotas)
+
+The Section 23.6 binary is a blind CONNECT relay: it sees aggregate bytes, never
+individual requests. Within a legitimate one-hour window, a compromised endpoint
+controlling the client stack can therefore emit millions of minimal-size `PutObject`
+requests whose cost is driven by per-request pricing rather than storage volume, and
+delayed budget containment cannot cap that vector. The production baseline therefore
+**replaces** the blind relay with a counting, TLS-terminating forward proxy that
+enforces hard session and calendar-day request quotas. The one-hour STS ceiling and
+every credential custody rule are unchanged by this component.
+
+> [!IMPORTANT]
+> The counting proxy must implement exactly this contract and pass `gofmt`, `go vet`,
+> `go build`, and every negative test below on the build workstation, with the binary
+> SHA-256 recorded alongside the other frozen artifacts (Section H6), **before** any
+> deployment. Until that gate passes, run the Section 23.6 blind relay unchanged and
+> retain the unbounded request-flood wording in T-09.
+
+```text
+SECURITY PROPERTIES
+TLS termination (client side)   Vault-issued leaf certificate for the exact regional
+                                S3 hostname; one CA per compartment, never shared
+Client trust scoping            SSL_CERT_FILE is exported only inside the restic S3
+                                proxy env block of each workflow; the operating-system
+                                trust store is never modified
+Upstream connection             fresh TLS to the real endpoint, verified against the
+                                normal system CA bundle; no byte rewriting anywhere
+Request handling                HTTP/1.1 only (ALPN restricted); the request header
+                                block is read behind a strict size cap; bodies are
+                                relayed raw while counted; keep-alive is honored
+Authorization material          relayed verbatim; the proxy stores no AWS credentials
+                                and cannot mint, reuse, or extend authority
+Confidentiality                 HTTP bodies are restic ciphertext end-to-end; the
+                                proxy observes only metadata (method, path prefix,
+                                size headers, timing)
+Fail-closed behavior            malformed input, wrong CONNECT target, HTTP/2 ALPN,
+                                unknown method, or quota exhaustion closes the tunnel,
+                                emits a structured event, and refuses further tunnels
+                                until local phase close
+```
+
+Quotas and classification:
+
+```text
+SESSION_MAX_REQUESTS          = 8000    per-session tripwire, all classes combined
+SESSION_METADATA_MAX_REQUESTS = 400     mutations outside data/*
+DAY_MAX_REQUESTS              = 12000   persisted Europe/Istanbul calendar-day bound
+
+CONNECT target != allowlisted regional S3 endpoint    DENY
+PUT / POST with path prefix data/*                    DATA class
+mutating requests outside data/*                      META class
+GET / HEAD / list-type requests                       READ class
+anything else                                         DENY + event
+
+ECONOMIC BOUND (adversarial worst case)
+  worst flood day           <= 12000 x ~USD 0.00002..0.00005/request
+                            = USD 0.24..0.60
+  budget-lag window         <= 2 issuance days before the budget deny attaches
+  documented absolute bound <= USD 0.48..1.20, i.e. below the USD 2 requirement
+                              even at pessimistic per-request pricing
+
+LEGITIMATE HEADROOM
+  a normal daily delta issues hundreds of requests and a heavy day stays in the low
+  thousands: at least 4x margin under the session cap. Bulk seeding uses the temporary
+  operator override below, removed afterwards.
+
+FALSE-POSITIVE FAILURE MODE
+  an over-tight cap stops only the S3 leg mid-run: no snapshot completes, the daily
+  slot burns (existing fail-closed semantics), the RHEL leg continues independently,
+  and no corruption is possible because restic snapshots are atomic.
+```
+
+Install steps:
+
+1. Generate the per-compartment CA and leaf (run independently on each VPS; never
+share a CA between compartments):
+
+```bash
+sudo install -d -o root -g root -m 700 /etc/vault-s3-proxy/tls
+sudo openssl ecparam -name prime256v1 -genkey -noout \
+  -out /etc/vault-s3-proxy/tls/ca.key
+sudo openssl req -new -x509 -key /etc/vault-s3-proxy/tls/ca.key \
+  -subj "/CN=Vault S3 Proxy CA (pc)" -days 3650 \
+  -out /etc/vault-s3-proxy/tls/ca.crt
+sudo openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes \
+  -keyout /etc/vault-s3-proxy/tls/leaf.key \
+  -subj "/CN=s3.us-east-1.amazonaws.com" -out /tmp/leaf.csr
+printf 'basicConstraints=CA:FALSE\nkeyUsage=digitalSignature,keyEncipherment\nextendedKeyUsage=serverAuth\nsubjectAltName=DNS:s3.us-east-1.amazonaws.com,DNS:s3.amazonaws.com\n' > /tmp/leaf.ext
+sudo openssl x509 -req -in /tmp/leaf.csr -CA /etc/vault-s3-proxy/tls/ca.crt \
+  -CAkey /etc/vault-s3-proxy/tls/ca.key -CAcreateserial -days 365 \
+  -extfile /tmp/leaf.ext -out /etc/vault-s3-proxy/tls/leaf.crt
+rm -f /tmp/leaf.csr /tmp/leaf.ext
+sudo chmod 600 /etc/vault-s3-proxy/tls/ca.key /etc/vault-s3-proxy/tls/leaf.key
+```
+
+Copy **only `ca.crt`** to the owning primary device as
+`~/.config/vault-secrets/vault-proxy-ca.crt` (mode `0644`; public material). Never
+place a VPS proxy CA private key on a primary device.
+
+2. Configure `/etc/vault-s3-proxy/quotas.env` (root-owned, mode `0640`) with the three
+quota values above plus `OBSERVE_ONLY`, the allowed endpoint list, and
+`DAY_STATE_PATH=/var/lib/vault-s3-proxy/state`.
+
+3. Deploy as the same dedicated service identity (`vaultproxy`) and systemd sandbox as
+Section 23.6. The TLS directory mounts read-only into the sandbox; the state directory
+is created owned `vaultproxy` mode `0700`.
+
+4. Extend the scoped proxy environment block in **both daily workflows and the one-time
+S3 initialization blocks** (the same block that already exports and unsets
+`HTTPS_PROXY`):
+
+```bash
+export HTTPS_PROXY="$S3_PROXY"
+export SSL_CERT_FILE="$HOME/.config/vault-secrets/vault-proxy-ca.crt"
+export SSL_CERT_FILE="$HOME/.config/vault-secrets/vault-proxy-ca.crt"
+# ... restic S3 invocation ...
+unset SSL_CERT_FILE HTTPS_PROXY ...
+```
+
+Do not export `SSL_CERT_FILE` outside this block and do not install the CA into any
+system trust store.
+
+Calibration and override: run the proxy with `OBSERVE_ONLY=true` for at least two
+representative weeks; it logs per-class request counts without enforcing them. Set
+each cap to at least five times the observed maximum before switching to enforcement,
+then rerun the full negative matrix. A planned bulk-seeding week temporarily raises
+`DAY_MAX_REQUESTS` through the operator-managed override file, which is removed
+afterwards; the override is reachable only from the VPS console path, never from a
+primary device.
+
+Acceptance and negative tests:
+
+```text
+[ ] Positive: dual-ceremony backup completes through the counting proxy; SigV4 is
+    accepted by S3 (signatures forwarded verbatim).
+[ ] Positive: completion revocation still fires (snapshot + later lock removal).
+[ ] Negative: CONNECT to a non-allowlisted endpoint is denied and logged.
+[ ] Negative: a malformed header block drops the tunnel and emits one structured event.
+[ ] Negative: an HTTP/2 ALPN offer is refused; only http/1.1 is negotiated.
+[ ] Negative: with caps temporarily set to 20, a synthetic flood is cut off
+    mid-session; no snapshot completes; the slot burns; RHEL is unaffected.
+[ ] Negative: the META cap trips on a synthetic snapshots/-prefix flood without
+    consuming the DATA allowance.
+[ ] Negative: restic invoked WITHOUT SSL_CERT_FILE fails the TLS handshake (proves the
+    system trust store was never modified).
+[ ] Rollback: the restored Section 23.6 binary passes its positive transfer test.
+```
+
+Rollback restores the Section 23.6 binary, removes the `SSL_CERT_FILE` lines and the
+distributed `ca.crt` files, and archives/deletes `/etc/vault-s3-proxy` and the state
+directory. Rollback returns the T-09 request-flood residual exactly; no data,
+repository, or cryptographic state changes irreversibly.
+
 ### 23.7 Install the client phase helper
 
 Install this same helper on PC and Phone as `~/bin/vault-phase-proof.py`:
@@ -10101,7 +10255,7 @@ cleanup() {
     kill -TERM "$PHASE_PID" 2>/dev/null
     wait "$PHASE_PID" 2>/dev/null
   fi
-  unset HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY
+  unset SSL_CERT_FILE HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
   unset RESTIC_PASSWORD RHEL_HTPASSWD RHEL_AUTH RHEL_REPO RHEL_DONE_TOKEN
   S3_CALENDAR_DATE=''
@@ -10419,6 +10573,7 @@ aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null
 load_sts_env "$RUN/sts.json"
 
 export HTTPS_PROXY="$S3_PROXY"
+export SSL_CERT_FILE="$HOME/.config/vault-secrets/vault-proxy-ca.crt"
 S3_JSON="$LOG_DIR/$(date +%Y%m%d-%H%M%S)-pc-s3-backup.jsonl"
 if ! restic_backup_json_retry 'PC→S3 backup' "$S3_JSON" \
   -r "$S3_REPOSITORY" \
@@ -10437,7 +10592,7 @@ date -Iseconds > "$STATE_DIR/last-pc-s3-success"
 # followed by a later repository-lock removal. Drop local STS values immediately, close
 # our own proxy phase, then keep the MFA-backed SSO session only for the read-only
 # opposite-device completion barrier.
-unset HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
+unset SSL_CERT_FILE HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
 STS_EXPIRATION=''
 finish_phase
 if ! wait_for_peer_s3_completion_and_close "$PEER_DEVICE" "$S3_CALENDAR_DATE" "$S3_SESSION_EXPIRES_AT"; then
@@ -10660,7 +10815,7 @@ cleanup() {
     kill -TERM "$PHASE_PID" 2>/dev/null
     wait "$PHASE_PID" 2>/dev/null
   fi
-  unset HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY
+  unset SSL_CERT_FILE HTTPS_PROXY HTTP_PROXY ALL_PROXY NO_PROXY
   unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
   unset RESTIC_PASSWORD RHEL_HTPASSWD RHEL_AUTH RHEL_REPO RHEL_DONE_TOKEN
   S3_CALENDAR_DATE=''
@@ -10980,6 +11135,7 @@ aws sts get-caller-identity --profile "$AWS_PROFILE" >/dev/null
 load_sts_env "$RUN/sts.json"
 
 export HTTPS_PROXY="$S3_PROXY"
+export SSL_CERT_FILE="$HOME/.config/vault-secrets/vault-proxy-ca.crt"
 S3_JSON="$LOG_DIR/$(date +%Y%m%d-%H%M%S)-phone-s3-backup.jsonl"
 if ! restic_backup_json_retry 'Phone→S3 backup' "$S3_JSON" \
   -r "$S3_REPOSITORY" \
@@ -10998,7 +11154,7 @@ date -Iseconds > "$STATE_DIR/last-phone-s3-success"
 # followed by a later repository-lock removal. Drop local STS values immediately, close
 # our own proxy phase, then keep the MFA-backed SSO session only for the read-only
 # opposite-device completion barrier.
-unset HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
+unset SSL_CERT_FILE HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_SECURITY_TOKEN
 STS_EXPIRATION=''
 finish_phase
 if ! wait_for_peer_s3_completion_and_close "$PEER_DEVICE" "$S3_CALENDAR_DATE" "$S3_SESSION_EXPIRES_AT"; then
@@ -11193,13 +11349,14 @@ PY
 )"
 export RESTIC_PASSWORD="$(cat "$HOME/.config/vault-secrets/own_restic_pw")"
 export HTTPS_PROXY='http://VPS_TS_IP:8888'
+export SSL_CERT_FILE="$HOME/.config/vault-secrets/vault-proxy-ca.crt"
 
 restic -r s3:s3.us-east-1.amazonaws.com/vault-pc-yourname \
   -o s3.bucket-lookup=path -o s3.region=us-east-1 \
   init --repository-version 2
 
 kill -TERM "$PHASE_PID"; wait "$PHASE_PID" || true
-unset HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN RESTIC_PASSWORD
+unset SSL_CERT_FILE HTTPS_PROXY AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN RESTIC_PASSWORD
 aws sso logout
 ```
 

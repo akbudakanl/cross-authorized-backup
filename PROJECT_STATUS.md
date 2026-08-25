@@ -55,6 +55,8 @@ The project is currently shelved pending personal audit and real deployment test
 * The slot is consumed before the single STS credential-creation attempt.
 * Ambiguous or failed STS issuance does not restore the daily slot.
 * Credential refresh loops are not part of the core design.
+* In-session S3 request volume is capped by the mandatory counting egress proxy
+  (session and Europe/Istanbul calendar-day quotas; see core guide Section 23.6A).
 
 ### RHEL Model
 

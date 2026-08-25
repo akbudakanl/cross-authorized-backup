@@ -166,7 +166,8 @@ docs/
 └── changes/
     ├── Virtiofsd Hardening and Zero Trust Updates.md
     ├── Vault_PQC_Auth_Process_Changelog.md
-    └── Vault_2026-07-16_STS_Completion_Revocation_CHANGELOG.md
+    ├── Vault_2026-07-16_STS_Completion_Revocation_CHANGELOG.md
+    └── Vault_2026-08-25_S3_Request_Quota_Proxy_CHANGELOG.md
 ```
 
 The core documents describe the reviewed baseline.

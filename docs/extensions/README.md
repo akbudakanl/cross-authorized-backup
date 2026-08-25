@@ -18,4 +18,5 @@ This directory contains optional architecture extensions, alternative configurat
 | [PQC & Native Communication Auth Process](Vault_Extension_PQC_Native_Communication_Auth_Process.md) | `pending` | Mutual ML-DSA authentication assuming full Tailnet breach. |
 | [Peer Relay Performance](Vault_Extension_Peer_Relay_Performance.md) | `rejected` | Conditionally rejected to avoid opening additional UDP ports unless TCP meltdown occurs. |
 | [Replace Kata with Custom Firecracker VM](Vault_Extension_Replace_Kata_with_Custom_Firecracker_VM.md) | `pending` | Architecture path to eliminate Kata's vsock orchestration channels for maximum VM isolation. |
+| [S3 Request Quota Proxy](Vault_Extension_S3_Request_Quota_Proxy.md) | `integrated` | Integrated as core §23.6A (mandatory counting egress proxy with request quotas); this file preserves rationale and rejected alternatives. |
 | [Totally Self-Hosted 321 Backup Strategy](Vault_Extension_Totally_Self_Hosted_321_Backup_Strategy.md) | `accepted` | Valid alternative architecture to eliminate AWS S3 dependency. |
