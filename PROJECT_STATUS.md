@@ -8,6 +8,17 @@ Pre-deployment architecture review completed.
 
 The project is currently shelved pending personal audit and real deployment testing.
 
+### Interim Protection While Paused (non-normative)
+
+A reference architecture that is not deployed protects zero bytes. While the Vault is
+shelved, irreplaceable data on primary devices should be covered by a deliberately
+simple stopgap: one plain restic repository on an external disk or a vanilla S3
+bucket, one scheduled daily job, and a monthly manual restore test. This stopgap has
+no ceremony complexity and no claim of ransomware resilience; its sole purpose is to
+keep the 3-2-1 rule alive until the Vault is audited and deployed, at which point it
+is decommissioned. Perfectionism deferred to an undeployed design is not a backup
+strategy.
+
 ## Documentation Status
 
 *   `docs/core/Vault_Zero_Trust_Master_Guide_CORE.md`: **FINALIZED (v1)** - The immutable reference for the core backup architecture.

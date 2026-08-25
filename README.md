@@ -119,6 +119,10 @@ To achieve quantum resistance for the authorization plane in the future, the arc
 
 **Experimental / pre-deployment architecture**
 
+> **Status note:** Development is intentionally paused for an extended period
+> (expected resume within ~1 year). See `PROJECT_STATUS.md` for the current phase,
+> pending review items, and queued extension checklists.
+
 Architecture baseline established: **2026-03-26**  
 Latest security-design revision: **2026-08-03**
 
