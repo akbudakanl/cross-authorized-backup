@@ -3737,7 +3737,7 @@ sudo systemctl mask serial-getty@ttyS0.service
 *(Note: Depending on your cloud provider, you may also need to mask `ttyS1` or `hvc0`)*
 
 > [!WARNING]
-> **Acımasız Kilitlenme (Zero-Tolerance):** With the web console disabled and TOTP removed, losing your Phone (CA) means losing all access to the VPS permanently. There is no cloud-console backdoor.
+> **Ruthless Lockout (Zero-Tolerance):** With the web console disabled and TOTP removed, losing your Phone (CA) means losing all access to the VPS permanently. There is no cloud-console backdoor.
 
 
 **Step 2.5: Race Condition Prevention (maxlogins)**

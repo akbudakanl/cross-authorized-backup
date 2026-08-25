@@ -1,4 +1,4 @@
----
+﻿---
 status: rejected
 ---
 # VAULT EXTENSION — CAPACITY-TRIGGERED PRUNE AND PERMANENT RETENTION MAINTENANCE
@@ -525,84 +525,84 @@ extension.
 
 ---
 
-# Vault Keep-All-Snapshots: 4 Yıllık Kapasite Yol Haritası
+# Vault Keep-All-Snapshots: 4-Year Capacity Roadmap
 
-## Amaç
+## Purpose
 
-Bu belge, `Vault_Zero_Trust_Master_Guide_NO_PRUNE.md` içindeki **GFS/forget/prune olmadan bütün snapshot geçmişini koruyan** üretim modu için kapasite ve gelecekteki retention-migration karar rehberidir.
+This document is the capacity and future retention-migration decision guide for the **keep-all-snapshot-history without GFS/forget/prune** production mode in `Vault_Zero_Trust_Master_Guide_NO_PRUNE.md`.
 
-**Güncel karar:** Sistem no-prune modunda başlar ve gerçek kullanım verisiyle çalışır. Kapasite sorunu ortaya çıkmadan retention karmaşıklığı geri getirilmez. RHEL repository filesystem'i %85 hard ingestion guard seviyesine ulaşırsa yeni ingestion durur ve belgelenmiş retention migration uygulanır. Bu, “prune gerekecek mi?” sorusunu yıllar önceden tahmin etmek yerine gerçek repository büyümesiyle cevaplamayı amaçlar.
+**Current decision:** The system starts in no-prune mode and operates on real usage data. Retention complexity is not reintroduced before a capacity problem emerges. If the RHEL repository filesystem reaches the %85 hard ingestion guard, new ingestion stops and the documented retention migration is applied. This aims to answer "will prune be needed?" with real repository growth rather than years-ahead prediction.
 
-Hedef kullanım profili:
+Target usage profile:
 
-- yaklaşık **40 GB başlangıç verisi**;
-- ağırlıklı fotoğraf/video gibi oluşturulup nadiren değiştirilen kişisel veri;
-- Markdown notları ve kaynak kod gibi sık değişen fakat küçük dosyalar;
-- Cloud Security / DevSecOps eğitimi için Terraform, Ansible, Kubernetes YAML, Vagrantfile, script ve küçük proje dosyaları;
-- seçilmiş küçük veritabanı ve PCAP/log örnekleri;
-- yaklaşık **4 yıllık** kullanım süresi;
-- RHEL repository filesystem'i için rehberdeki **%85 hard ingestion guard**.
+- approximately **40 GB initial data**;
+- predominantly personal data created once and rarely changed, such as photos/videos;
+- frequently changing but small files such as Markdown notes and source code;
+- Terraform, Ansible, Kubernetes YAML, Vagrantfile, scripts and small project files for Cloud Security / DevSecOps training;
+- selected small database and PCAP/log samples;
+- approximately **4-year** usage period;
+- **%85 hard ingestion guard** for the RHEL repository filesystem.
 
-Bu belge fiyat garantisi veya mutlak kapasite garantisi değildir. Asıl karar verisi, ilk 90 günden itibaren gerçek repository büyüme eğimidir.
+This document is not a price guarantee or an absolute capacity guarantee. The real decision data is the actual repository growth slope from the first 90 days onward.
 
 ---
 
-## 1. 237 GiB görünen disk için kapasite bütçesi
+## 1. Capacity budget for a 237 GiB visible disk
 
-Windows'ta yaklaşık `237 GB` görünen 256 GB sınıfı SSD, RHEL kurulduğunda partition/layout ayrıntılarına göre benzer büyüklükte bir filesystem sunabilir. Rehberdeki guard `df /var/lib/vault-rhel/repos` mantığıyla **repository dizininin bulunduğu gerçek filesystem'in kullanım yüzdesini** ölçer; üreticinin kutu üzerinde yazdığı `256 GB` sayısına doğrudan yüzde uygulamaz.
+A 256 GB-class SSD that appears as approximately `237 GB` in Windows can present a similarly sized filesystem after RHEL partitioning. The guard in the guide, `df /var/lib/vault-rhel/repos`, measures **the usage percentage of the actual filesystem where the repository directory resides**; it does not directly apply a percentage to the `256 GB` number printed on the box.
 
-237 GiB varsayımıyla:
+Assuming 237 GiB:
 
-| Eşik | Toplam filesystem kullanımı |
+| Threshold | Total filesystem usage |
 |---|---:|
 | %70 | 165.9 GiB |
 | %80 | 189.6 GiB |
 | %85 | 201.45 GiB |
 
-Planlama amacıyla RHEL + paketler + Podman storage + log/cache için **25–30 GiB** rezerv ayırırsak repository'lere %85 guard öncesinde yaklaşık **171.45–176.45 GiB** kalır.
+If we reserve **25-30 GiB** for RHEL + packages + Podman storage + logs/cache for planning purposes, approximately **171.45-176.45 GiB** remains for repositories before the %85 guard.
 
-> Bu 25–30 GiB bir RHEL garantisi değil, muhafazakâr planlama payıdır. İlk kurulumdan sonra gerçek `df -h` ve `du` değerleriyle değiştirilmelidir.
-
----
-
-## 2. 40 GiB başlangıç verisi tek kez RHEL'e gidiyorsa
-
-Toplam iki repository'nin başlangıçtaki fiziksel veri yükü yaklaşık 40 GiB kabul edilirse:
-
-| Hedef eşik | 30 GiB OS rezerviyle büyüme payı | 25 GiB OS rezerviyle büyüme payı | 48 aya bölünmüş aylık ortalama |
-|---|---:|---:|---:|
-| %70 warning | 95.9 GiB | 100.9 GiB | yaklaşık 2.00–2.10 GiB/ay |
-| %80 urgent review | 119.6 GiB | 124.6 GiB | yaklaşık 2.49–2.60 GiB/ay |
-| %85 hard guard | 131.45 GiB | 136.45 GiB | yaklaşık 2.74–2.84 GiB/ay |
-
-### Pratik yorum
-
-Dört yıl boyunca repository fiziksel büyümen ortalama:
-
-- **≤1 GiB/ay:** çok rahat; 48 ayda yaklaşık +48 GiB.
-- **1–2 GiB/ay:** rahat; 48 ayda +48–96 GiB.
-- **2–2.5 GiB/ay:** izlenmeli; dört yıllık sonunda 136–160 GiB civarı repository yüküne yaklaşabilirsin.
-- **>2.5 GiB/ay sürekli:** no-prune mimarisini 90 günlük trend üzerinden yeniden değerlendirmek gerekir.
-
-40 GiB'yi gerçek hayatta ondalık `GB` olarak söylüyorsan bu yaklaşık 37.3 GiB'dir; burada 40 GiB kabul etmek biraz muhafazakâr davranır.
+> This 25-30 GiB is not a RHEL guarantee; it is a conservative planning reserve. After initial setup it must be replaced with real `df -h` and `du` values.
 
 ---
 
-## 3. Karşılaştırma senaryosu: aynı 40 GiB iki repository'de duplicate olsaydı
+## 2. If 40 GiB initial data goes to RHEL once
 
-Restic deduplication **repository içindedir**. PC ve phone RHEL repository'leri birbirine karşı deduplicate olmaz.
+If the total initial physical data load of both repositories is assumed to be approximately 40 GiB:
 
-**Bu kullanıcının mevcut durumu değildir; doğrulanan başlangıç toplamı yaklaşık 40 GiB'dır.** Bu bölüm yalnız yanlış scope/duplicate oluşursa kapasite etkisini göstermek için tutulur.
-
-Aynı 40 GiB koleksiyon iki bağımsız repository'ye giderse başlangıç yaklaşık 80 GiB olabilir:
-
-| Hedef eşik | 30 GiB OS rezerviyle büyüme payı | 25 GiB OS rezerviyle büyüme payı | 48 aya bölünmüş aylık ortalama |
+| Target threshold | Growth budget with 30 GiB OS reserve | Growth budget with 25 GiB OS reserve | Monthly average over 48 months |
 |---|---:|---:|---:|
-| %70 warning | 55.9 GiB | 60.9 GiB | yaklaşık 1.16–1.27 GiB/ay |
-| %80 urgent review | 79.6 GiB | 84.6 GiB | yaklaşık 1.66–1.76 GiB/ay |
-| %85 hard guard | 91.45 GiB | 96.45 GiB | yaklaşık 1.91–2.01 GiB/ay |
+| %70 warning | 95.9 GiB | 100.9 GiB | approx. 2.00-2.10 GiB/month |
+| %80 urgent review | 119.6 GiB | 124.6 GiB | approx. 2.49-2.60 GiB/month |
+| %85 hard guard | 131.45 GiB | 136.45 GiB | approx. 2.74-2.84 GiB/month |
 
-Bu nedenle ilk gerçek backup'tan sonra RHEL'de iki repository'nin toplam fiziksel büyüklüğünü ölçmek kritik:
+### Practical interpretation
+
+Average monthly repository physical growth over four years:
+
+- **<=1 GiB/month:** very comfortable; approx. +48 GiB over 48 months.
+- **1-2 GiB/month:** comfortable; +48-96 GiB over 48 months.
+- **2-2.5 GiB/month:** needs monitoring; may approach 136-160 GiB repository load by end of four years.
+- **>2.5 GiB/month sustained:** the no-prune architecture must be re-evaluated via the 90-day trend.
+
+If you state 40 GiB in real life as decimal `GB`, that is approximately 37.3 GiB; assuming 40 GiB here is slightly conservative.
+
+---
+
+## 3. Comparison scenario: if the same 40 GiB were duplicated in two repositories
+
+Restic deduplication is **within a repository**. The PC and phone RHEL repositories do not deduplicate against each other.
+
+**This is not the current state of this user; the verified initial total is approximately 40 GiB.** This section is kept only to show the capacity impact if wrong scope/duplication occurs.
+
+If the same 40 GiB collection goes to two independent repositories, the initial size may be approximately 80 GiB:
+
+| Target threshold | Growth budget with 30 GiB OS reserve | Growth budget with 25 GiB OS reserve | Monthly average over 48 months |
+|---|---:|---:|---:|
+| %70 warning | 55.9 GiB | 60.9 GiB | approx. 1.16-1.27 GiB/month |
+| %80 urgent review | 79.6 GiB | 84.6 GiB | approx. 1.66-1.76 GiB/month |
+| %85 hard guard | 91.45 GiB | 96.45 GiB | approx. 1.91-2.01 GiB/month |
+
+Therefore it is critical to measure the total physical size of both repositories on RHEL after the first real backup:
 
 ```bash
 sudo du -sh /var/lib/vault-rhel/repos/pc
@@ -613,216 +613,216 @@ sudo df -h /var/lib/vault-rhel/repos
 
 ---
 
-## 4. Sürekli değişen Markdown ve kod dosyaları no-prune için sorun mu?
+## 4. Are continuously changing Markdown and code files a problem for no-prune?
 
-### Kısa cevap
+### Short answer
 
-**Evet, her yeni sürüm geçmiş veri olarak repository'de kalır; fakat küçük Markdown/kod dosyalarında mutlak disk maliyeti genellikle düşüktür.**
+**Yes, every new version remains as historical data in the repository; but for small Markdown/code files the absolute disk cost is usually low.**
 
-Restic'in tasarımında:
+In Restic's design:
 
-- 512 KiB'den küçük dosyalar bölünmeden tek blob olarak saklanır;
-- daha büyük dosyalar content-defined chunking ile 512 KiB–8 MiB arası blob'lara bölünür ve ortalama yaklaşık 1 MiB blob hedeflenir;
-- değiştirilmiş büyük dosyalarda yalnız yeni/değişmiş blob'ların eklenmesi amaçlanır;
-- repository v2 veri ve tree blob'larında zstd sıkıştırmasını destekler.
+- Files smaller than 512 KiB are stored as a single blob without splitting;
+- larger files are split into 512 KiB-8 MiB blobs via content-defined chunking with an average target of ~1 MiB;
+- for changed large files only the new/changed blobs are intended to be added;
+- repository v2 supports zstd compression for data and tree blobs.
 
-Bu nedenle küçük bir `.md` dosyasını her gün değiştirmek eski sürümlerin tutulduğu anlamına gelir, ancak dosyanın kendisi küçük olduğu için kapasite etkisi de küçüktür.
+Therefore, changing a small `.md` file every day means old versions are kept, but because the file itself is small the capacity impact is also small.
 
-### Dört yılda günlük benzersiz churn matematiği
+### Daily unique churn math over four years
 
-1,461 günlük dört yıllık dönem için, **her gün repository'ye gerçekten yeni ve benzersiz olarak eklenen ham değişmiş içerik** yaklaşık şöyle birikir:
+For a 1,461-day four-year period, the **raw changed content that is truly new and unique added to the repository each day** accumulates approximately as follows:
 
-| Günlük unique churn | 4 yılda ham historical churn |
+| Daily unique churn | 4-year raw historical churn |
 |---|---:|
-| 0.1 MiB/gün | 0.14 GiB |
-| 1 MiB/gün | 1.43 GiB |
-| 5 MiB/gün | 7.13 GiB |
-| 10 MiB/gün | 14.27 GiB |
-| 25 MiB/gün | 35.67 GiB |
-| 50 MiB/gün | 71.34 GiB |
-| 100 MiB/gün | 142.68 GiB |
+| 0.1 MiB/day | 0.14 GiB |
+| 1 MiB/day | 1.43 GiB |
+| 5 MiB/day | 7.13 GiB |
+| 10 MiB/day | 14.27 GiB |
+| 25 MiB/day | 35.67 GiB |
+| 50 MiB/day | 71.34 GiB |
+| 100 MiB/day | 142.68 GiB |
 
-Örnek:
+Example:
 
-- 100 KiB Markdown notunun her gün tamamen farklı bir blob üretmesi bile dört yılda yaklaşık **143 MiB ham sürüm geçmişi** demektir.
-- Toplam 1 MiB yeni kod/not içeriğinin her gün gerçekten benzersiz hâle gelmesi dört yılda yaklaşık **1.43 GiB** yapar.
-- Asıl tehlike 50–100 MiB/gün sürekli benzersiz değişimdir; bu artık Markdown/kaynak kod profili değil, büyük mutable artefact profilidir.
+- Even if a 100 KiB Markdown note produces a completely different blob every day, that is only approximately **143 MiB raw version history** over four years.
+- If a total of 1 MiB of new code/note content truly becomes unique every day, that is approximately **1.43 GiB** over four years.
+- The real danger is 50-100 MiB/day sustained unique churn; that is no longer a Markdown/source-code profile, but a large mutable artefact profile.
 
-Sıkıştırma nedeniyle düz metin ve kaynak kodun fiziksel `data_added_packed` değeri ham churn'den daha düşük olabilir. Kapasite planında sabit bir “kod %X sıkışır” oranı varsayma; gerçek JSON summary değerini ölç.
+Due to compression, the physical `data_added_packed` value for plain text and source code can be lower than raw churn. Do not assume a fixed "code compresses X%" ratio in capacity planning; measure the real JSON summary value.
 
 ---
 
-## 5. Asıl riskli dosya türleri
+## 5. Actually risky file types
 
-Aşağıdakiler aylar boyunca sürekli değişirse no-prune repository'yi hızlı büyütebilir:
+The following can rapidly grow the no-prune repository if they change continuously for months:
 
 ```text
 *.qcow2
 *.vmdk
 raw VM disk images
-büyük mutable database files
-uzun süre açık kalan *.pcap / *.pcapng captures
-sürekli append edilen büyük loglar
+large mutable database files
+long-running *.pcap / *.pcapng captures
+continuously appended large logs
 container image tar exports
 build artefacts
 ISO images
 package/provider/dependency caches
 ```
 
-### DevSecOps için önerilen scope
+### Recommended scope for DevSecOps
 
-**Vault'a dahil et:**
+**Include in Vault:**
 
-- `.md` notlar;
+- `.md` notes;
 - source code;
-- `.git` repository bilgisi, gerçekten yerel tarihçeyi korumak istiyorsan;
-- `Dockerfile`, `Containerfile`, Compose dosyaları;
-- Terraform `.tf` ve `.tfvars` içinden secret olmayanlar;
+- `.git` repository information, if you truly want to preserve local history;
+- `Dockerfile`, `Containerfile`, Compose files;
+- Terraform `.tf` and `.tfvars` excluding secrets;
 - `.terraform.lock.hcl`;
-- Ansible playbook/role'ları;
-- Kubernetes YAML/Helm chart'ları;
+- Ansible playbook/roles;
+- Kubernetes YAML/Helm charts;
 - Vagrantfile;
 - CI/CD config;
-- küçük ve anlamlı DB dump'ları;
-- seçilmiş/etiketlenmiş PCAP örnekleri;
-- rapor, ödev ve proje dokümantasyonu.
+- small and meaningful DB dumps;
+- selected/tagged PCAP samples;
+- reports, assignments and project documentation.
 
-**Varsayılan olarak Vault dışında tut:**
+**Keep outside Vault by default:**
 
 - `.terraform/` provider cache;
 - `.terragrunt-cache/`;
 - `node_modules/`;
 - `.venv/`, virtualenv cache;
 - `target/`, `build/`, `dist/`, `out/`;
-- Docker/Podman image export tar'ları;
-- indirilebilir ISO'lar;
-- yeniden üretilebilir VM diskleri;
-- ham, uzun süreli packet capture arşivleri;
-- rotate edilmemiş debug logları.
+- Docker/Podman image export tars;
+- downloadable ISOs;
+- reproducible VM disks;
+- raw, long-term packet capture archives;
+- non-rotated debug logs.
 
-Bir VM'in **tanımı** yedeklenmeli; disposable VM disk image'ı çoğu durumda yedeklenmemeli.
+The **definition** of a VM should be backed up; a disposable VM disk image should not be backed up in most cases.
 
 ---
 
-## 6. 128 MiB S3 pack hedefi küçük değişiklikleri 128 MiB'a şişirir mi?
+## 6. Does the 128 MiB S3 pack target inflate small changes to 128 MiB?
 
-**Hayır.** `RESTIC_PACK_SIZE=128` bir **target pack size** ayarıdır; “her değişiklik için 128 MiB padding yap” anlamına gelmez.
+**No.** `RESTIC_PACK_SIZE=128` is a **target pack size** setting; it does not mean "pad every change to 128 MiB".
 
-Restic blob'ları pack dosyalarında birleştirir. Güncel restic kaynak kodu repository işlemi tamamlanırken “remaining packs” için `Flush` çalıştırıldığını gösterir. Dolayısıyla bir backup çalışması yalnız küçük miktarda yeni blob ürettiyse kalan pack yine kaydedilir; 128 MiB'a sıfır/padding ile doldurulmaz.
+Restic merges blobs into pack files. The current Restic source shows that `Flush` is executed for `remaining packs` when the repository operation completes. Therefore, if a backup run produced only a small amount of new blobs, the remaining pack is still saved; it is not zero-filled/padded to 128 MiB.
 
-Bu nedenle:
+Therefore:
 
 ```text
-2 KiB Markdown değişikliği
-    ≠ 128 MiB yeni S3 data pack zorunluluğu
+2 KiB Markdown change
+    != 128 MiB new S3 data pack requirement
 ```
 
-Gerçek eklenen veri yeni data/tree blob'ları, encryption/pack header overhead'i ve repository metadata'sıdır.
+The actually added data is new data/tree blobs, encryption/pack header overhead and repository metadata.
 
-### 128 MiB ayarının gerçek etkisi
+### Real effect of the 128 MiB setting
 
-Restic'in varsayılan target pack size değeri 16 MiB; desteklenen maksimum target 128 MiB'dir.
+Restic's default target pack size is 16 MiB; the maximum supported target is 128 MiB.
 
-Yeterince yeni veri üreten bir backup'ta kabaca:
+For a backup that produces enough new data, roughly:
 
 ```text
 40 GiB / 16 MiB  ≈ 2,560 target-sized data packs
 40 GiB / 128 MiB ≈   320 target-sized data packs
 ```
 
-Yani pack'ler iyi doluyorsa data-pack object/PUT sayısı kabaca **8 kat azalabilir**. Bu, S3 object/API request sayısını düşürmek için 128 MiB seçiminin mantığını açıklar.
+So if packs are well-filled, the number of data-pack objects/PUTs can decrease by roughly **8x**. This explains the logic of the 128 MiB choice to reduce S3 object/API request count.
 
-Fakat günlük değişim yalnız birkaç MiB ise backup sonundaki partial pack flush nedeniyle “128 MiB dolana kadar sekiz gün bekle” davranışı yoktur. Böyle küçük günlük çalışmalarda her backup yine küçük pack/metadata object'ları üretebilir. Bu nedenle 128 MiB ayarı API çağrılarını her workload'da tam sekiz kat azaltmaz.
+However, if daily change is only a few MiB, there is no "wait eight days until 128 MiB is full" behavior due to the partial pack flush at the end of the backup. In such small daily runs each backup can still produce small pack/metadata objects. Therefore the 128 MiB setting does not reduce API calls by exactly eight times for every workload.
 
-### Bedeli
+### Cost
 
-Restic'in resmi tuning dokümanına göre pack size büyüdükçe:
+According to Restic's official tuning documentation, as pack size grows:
 
-- client temp alanı gereksinimi artar;
-- backend'e bağlı olarak RAM ihtiyacı benzer şekilde artabilir;
-- daha büyük temporary pack'lerin upload sürerken diske flush edilme ihtimali ve SSD write wear artabilir.
+- client temp space requirement increases;
+- RAM requirement may similarly increase depending on backend;
+- the probability that larger temporary packs will be flushed to disk during upload and SSD write wear may increase.
 
-Dokümantasyondaki formüle göre gereken minimum temp alanı yaklaşık:
+Per the documented formula, the required minimum temp space is approximately:
 
 ```text
 pack size × (backend connection count + 1)
 ```
 
-Çoğu backend için örnek 5 connection ise:
+Example for 5 connections for most backends:
 
 ```text
-128 MiB × 6 = yaklaşık 768 MiB minimum temp alanı
-64 MiB  × 6 = yaklaşık 384 MiB minimum temp alanı
+128 MiB × 6 = approx. 768 MiB minimum temp space
+64 MiB  × 6 = approx. 384 MiB minimum temp space
 ```
 
-Bu yüzden PC tarafında 128 MiB makul olabilir. Telefon script'inin 64 MiB kullanması, daha sınırlı RAM/temp alanı için daha dengeli bir seçimdir.
+Therefore 128 MiB can be reasonable on the PC side. The phone script using 64 MiB is a more balanced choice for more limited RAM/temp space.
 
 ---
 
-## 7. 40 GiB başlangıç senaryosu için önerilen dört yıllık yol
+## 7. Recommended four-year path for the 40 GiB initial scenario
 
-### Ay 0 — Baseline
+### Month 0 — Baseline
 
-İlk başarılı tam RHEL backup sonrasında:
+After the first successful full RHEL backup:
 
 ```bash
 sudo du -sb /var/lib/vault-rhel/repos
 sudo df -P /var/lib/vault-rhel/repos
 ```
 
-çıktısını kapasite logunun ilk referans noktası kabul et.
+Treat the output as the first reference point for the capacity log.
 
-İki repository'nin gerçekten toplam 40 GiB mi, yoksa aynı verinin iki repository'de bulunması nedeniyle 80 GiB'a mı yakın olduğunu burada öğren.
+Learn here whether the two repositories are really 40 GiB in total, or whether they are close to 80 GiB because the same data is in both repositories.
 
-### İlk 90 gün — Ölçüm dönemi
+### First 90 days — Measurement period
 
-Her session sonunda watchdog zaten:
+The watchdog already records after each session:
 
 ```text
 timestamp,filesystem-used-percent,total-repository-bytes
 ```
 
-formatında `/var/log/vault-rhel-capacity.csv` kaydı tutar.
+in `/var/log/vault-rhel-capacity.csv` format.
 
-90 günlük eğim:
+90-day slope:
 
 ```text
 growth_per_month = (repo_bytes_day90 - repo_bytes_day0) / 3
 ```
 
-### Karar tablosu — 40 GiB başlangıç toplam repository senaryosu
+### Decision table — 40 GiB initial total repository scenario
 
-| 90 günlük normalize aylık büyüme | Karar |
+| 90-day normalized monthly growth | Decision |
 |---|---|
-| ≤1 GiB/ay | No-prune model çok rahat. Yıllık gözden geçirme yeterli. |
-| 1–2 GiB/ay | No-prune mantıklı. Her 6 ay trend kontrolü yap. |
-| 2–2.5 GiB/ay | Sarı bölge. Büyük mutable artefact'ları ve duplicate data scope'u incele. |
-| 2.5–2.8 GiB/ay | %85 dört yıllık matematik sınırına yaklaşıyorsun. Storage migration planı hazırla. |
-| >2.8 GiB/ay | Mevcut 237 GiB / %85 varsayımıyla dört yıllık no-prune hedefi güvenli plan değildir. |
+| <=1 GiB/month | No-prune model very comfortable. Annual review sufficient. |
+| 1-2 GiB/month | No-prune reasonable. Check trend every 6 months. |
+| 2-2.5 GiB/month | Yellow zone. Examine large mutable artefacts and duplicate data scope. |
+| 2.5-2.8 GiB/month | Approaching %85 four-year mathematical limit. Prepare storage migration plan. |
+| >2.8 GiB/month | With the current 237 GiB / %85 assumption, the four-year no-prune goal is not a safe plan. |
 
-80 GiB başlangıç senaryosunda kritik dört yıllık ortalama yaklaşık **1.9–2.0 GiB/ay** seviyesine düşer.
+In the 80 GiB initial scenario the critical four-year average drops to approximately **1.9-2.0 GiB/month**.
 
-### Yıl 1
+### Year 1
 
-Şunları karşılaştır:
+Compare the following:
 
 ```text
-başlangıç repo bytes
-yıl 1 repo bytes
+initial repo bytes
+year 1 repo bytes
 90-day rolling growth slope
 filesystem % used
 ```
 
-İlk yıl sonunda repo toplamı 60–70 GiB civarındaysa ve başlangıç 40 GiB ise no-prune seçimi çok rahat görünür.
+If the repo total is 60-70 GiB at the end of the first year and the initial was 40 GiB, the no-prune choice appears very comfortable.
 
 ### %70 warning
 
-Panik veya cleanup yapma.
+Do not panic or clean up.
 
-- Son 90 günlük büyüme eğimini hesapla.
-- `du` ile `/pc` ve `/phone` paylarını ayır.
-- VM disk, PCAP, log ve cache scope'unu incele.
-- Kalan runway'i hesapla:
+- Calculate the last 90-day growth slope.
+- Separate `/pc` and `/phone` shares with `du`.
+- Examine VM disk, PCAP, log and cache scope.
+- Calculate remaining runway:
 
 ```text
 months_remaining = (85_percent_repo_budget - current_repo_bytes) / average_monthly_growth
@@ -830,80 +830,98 @@ months_remaining = (85_percent_repo_budget - current_repo_bytes) / average_month
 
 ### %80 urgent review
 
-Artık “ileride bakarım” seviyesi değildir.
+This is no longer "look at it later" level.
 
-- Daha büyük SSD / yeni receiver hazırlığını başlat.
-- Repository'yi mevcut ciphertext hâliyle daha büyük storage'a taşımayı planla.
-- Yeni bir retention mimarisi düşünüyorsan bunu ayrı threat-model revizyonu olarak tasarla.
-- RHEL'e repository passwords kopyalayıp acil receiver-side cleanup yolu açma.
+- Initiate larger SSD / new receiver preparation.
+- Plan to move the repository in its current ciphertext form to larger storage.
+- If you are considering a new retention architecture, design it as a separate threat-model revision.
+- Do not copy repository passwords to RHEL to open an emergency receiver-side cleanup path.
 
 ### %85 hard guard
 
-Yeni ingestion durur.
+New ingestion stops.
 
-Bu bir hata değil, **retention migration için fail-safe karar sınırıdır**. Güncel operasyon kararı şudur:
+This is not an error, it is a **fail-safe decision boundary for retention migration**. The current operational decision is:
 
-1. No-prune modunu %85 hard guard'a kadar kullan.
-2. Guard tetiklendiğinde yeni backup kabul etme.
-3. Repository'leri ve kaynak anahtarlarını doğrula.
-4. Aşağıdaki “Kalıcı Retention Migration” prosedürünü uygula.
-5. Migration, `forget` dry-run, gerçek `forget`, düşük-scratch-space `prune` ve `check` başarıyla tamamlanmadan ingestion'ı yeniden açma.
+1. Use no-prune mode up to the %85 hard guard.
+2. Do not accept new backups when the guard triggers.
+3. Verify repositories and source keys.
+4. Apply the `Persistent Retention Migration` procedure below.
+5. Do not reopen ingestion until migration, `forget` dry-run, real `forget`, low-scratch-space `prune` and `check` have completed successfully.
 
-Önemli: `%85`, “birkaç backup daha alıp sonra bakarım” eşiği değildir. `prune` repack sırasında geçici scratch alanına ihtiyaç duyabilir. Restic düşük boş alan senaryolarında `--max-repack-size 0` seçeneğini önerir; yine de güvenli yaklaşım hard guard tetiklendiği anda yazmayı durdurmaktır.
-
----
-
-## 8. Benim senin kullanım profiline ilişkin değerlendirmem
-
-Sürekli değişen Markdown ve source code **no-prune kararını tek başına bozmaz**. Küçük dosyalarda her sürüm tutulsa bile günlük benzersiz changed-content hacmi düşükse dört yıllık maliyet birkaç GiB veya birkaç on GiB düzeyinde kalabilir.
-
-Senin için esas kapasite kontrol soruları şunlardır:
-
-1. 40 GiB kişisel medya iki RHEL repository'sinde yanlışlıkla duplicate mı?
-2. VM disk image'ları backup scope'unda mı?
-3. PCAP/log dosyaları rotate/curate ediliyor mu?
-4. `data_added_packed` ve RHEL physical-growth slope ayda kaç GiB?
-
-Başlangıçta toplam repository gerçekten yaklaşık 40 GiB ve 90 günlük ölçüm **2 GiB/ay altında** kalıyorsa, dört yıllık no-prune tasarımı senin anlatılan öğrenci/DevSecOps kullanım profilin için mantıklı bir plan olarak görünür.
-
+Important: `%85` is not a "take a few more backups and then look" threshold. `prune` may need temporary scratch space during repack. Restic recommends `--max-repack-size 0` for low free-space scenarios; the safe approach is still to stop writes the moment the hard guard triggers.
 
 ---
 
-## 9. Kalıcı Operasyon Kararı: Capacity-Triggered Retention
+## 8. Assessment of your usage profile
 
-### Karar
+Continuously changing Markdown and source code **does not by itself break the no-prune decision**. Even if every version of small files is kept, the four-year cost can remain at a few GiB or a few tens of GiB if daily unique changed-content volume is low.
 
-Bu Vault kurulumu **no-prune / keep-all-history** modunda başlar.
+The key capacity control questions for you are:
 
-Amaç, dört yıl boyunca ihtiyaç duyulmayabilecek destructive retention yetkisini ve çapraz repository anahtar paylaşımını sırf teorik bir kapasite endişesi için ilk günden sisteme eklememektir.
+1. Is 40 GiB personal media accidentally duplicated in two RHEL repositories?
+2. Are VM disk images in the backup scope?
+3. Are PCAP/log files being rotated/curated?
+4. How many GiB per month is `data_added_packed` and RHEL physical-growth slope?
 
-Operasyon modeli:
+If the total repository at start is really approximately 40 GiB and the 90-day measurement stays **below 2 GiB/month**, the four-year no-prune design appears as a reasonable plan for your described student/DevSecOps usage profile.
+
+
+---
+
+## 9. Persistent Operation Decision: Capacity-Triggered Retention
+
+### Decision
+
+This Vault setup starts in **no-prune / keep-all-history** mode.
+
+Purpose: not to add destructive retention privileges and cross-repository key sharing to the system from day one for a merely theoretical capacity concern that may not be needed for four years.
+
+Operation model:
 
 ```text
 NO-PRUNE DEFAULT
-      │
-      │ gerçek kullanım
-      │ kapasite logları
-      │ data_added_packed trendi
-      ▼
+      |
+      | real usage
+      | capacity logs
+      | data_added_packed trend
+      v
 filesystem < %85
-      │
-      └── keep all snapshots; forget/prune yok
+      |
+      +-- keep all snapshots; forget/prune none
 
 filesystem >= %85 hard guard
-      │
-      ▼
+      |
+      v
 INGESTION STOPPED
-      │
-      ▼
+      |
+      v
 RETENTION MIGRATION
-      │
-      ▼
+      |
+      v
 GFS-LIKE WEEK / MONTH / YEAR WINDOWS + PRUNE
-      │
-      ▼
+      |
+      v
 PERMANENT RETENTION MODE
 ```
+
+This design is a deliberate **deferred complexity** decision:
+
+> Do not add destructive repository privileges to solve capacity until the capacity problem becomes real.
+
+Therefore, using no-prune until 85% does not mean "maintenance is forgotten". The system utilizes the capacity limit as an **architectural migration trigger**.
+
+### Why not revert to no-prune after 85%?
+
+Once a retention migration is performed, old snapshots are removed with `forget`, and unreferenced pack data is physically deleted with `prune`, the keep-all-history past cannot be restored.
+
+Therefore, a migration means:
+
+> Disk pressure is no longer theoretical; the lifecycle of the repository requires permanent retention.
+
+After migration, the system does not bounce back and forth weekly/monthly between no-prune and prune. **Prune + retention becomes the permanent mode of operation.**
+
+The permanent GFS-like target policy in this document is: **7d / 6 weeks / 6 months / 4 years**.
 
 This design is a deliberate **deferred complexity** decision:
 
@@ -1215,8 +1233,7 @@ Do not lose the context of this decision:
 
 ---
 
-## Birincil teknik kaynaklar
-
+## Primary Technical Sources
 - Restic repository design / chunking / blobs / pack format: https://restic.readthedocs.io/en/stable/100_references.html
 - Restic backup and deduplication examples: https://restic.readthedocs.io/en/stable/040_backup.html
 - Restic tuning parameters and pack size: https://restic.readthedocs.io/en/stable/047_tuning_parameters.html
