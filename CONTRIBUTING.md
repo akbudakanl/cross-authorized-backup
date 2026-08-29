@@ -21,7 +21,7 @@ To maintain the integrity of the `main` baseline, direct commits or pushes to th
 ### Current Status: Single-Maintainer Pre-Deployment Phase
 This repository is currently maintained by a single developer. To balance operational viability with zero-trust branch protection practices, the following governance protocol is enforced:
 
-* **PR Requirement:** All modifications—including minor documentation fixes—must pass through the Pull Request pipeline. Direct `main` pushing is prohibited to ensure full auditability via PR history.
+* **PR Requirement:** All modifications-including minor documentation fixes-must pass through the Pull Request pipeline. Direct `main` pushing is prohibited to ensure full auditability via PR history.
 * **Approval Ruleset Adaptation:** During the single-maintainer phase, strict multi-party approval requirements are adapted (e.g., self-merge or bypass configurations are utilized where GitHub prevents single-user approval loops).
 * **Future Transition:** As the project moves into campus-network testing and additional co-maintainers join, multi-party review and mandatory independent code owner approvals (`CODEOWNERS`) will be strictly enforced at the ruleset level without exceptions.
 

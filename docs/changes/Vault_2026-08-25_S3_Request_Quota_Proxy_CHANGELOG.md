@@ -1,4 +1,4 @@
-# THE VAULT — 2026-08-25 S3 REQUEST QUOTA PROXY CHANGELOG
+# THE VAULT - 2026-08-25 S3 REQUEST QUOTA PROXY CHANGELOG
 
 ## 1. Reason for this revision
 
@@ -26,7 +26,7 @@ The Section 23.6 binary is superseded by a counting TLS-terminating forward prox
 ```text
 client-facing TLS     Vault-issued leaf certificate for the exact regional endpoint;
                       one CA per compartment; trusted ONLY via SSL_CERT_FILE inside
-                      the restic S3 env block — never via the OS trust store
+                      the restic S3 env block - never via the OS trust store
 upstream TLS          fresh connection to the real endpoint, verified against the
                       normal system CA bundle; all bytes relayed verbatim
 visibility            HTTP metadata only (method, path prefix, size headers, timing);

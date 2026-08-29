@@ -1,4 +1,4 @@
-# VAULT — DEVICE RETIREMENT AND MIGRATION RUNBOOK
+# VAULT - DEVICE RETIREMENT AND MIGRATION RUNBOOK
 
 **Document type:** core operational lifecycle runbook  
 **Architecture reference:** 2026-07-16 RHEL 9 BYOL/BYOI + Tailscale Tailnet Lock + outbound-only + no-prune + S3 successful-completion revocation + signed peer close + no-custom-SELinux-policy baseline
@@ -70,7 +70,7 @@ A replacement device is a new cryptographic/node identity.
 
 ## 2. Event classifications
 
-### CLASS A — Planned replacement
+### CLASS A - Planned replacement
 
 Examples:
 
@@ -81,7 +81,7 @@ scheduled SSD replacement
 clean OS reinstall with old device still controlled
 ```
 
-### CLASS B — Lost or destroyed device
+### CLASS B - Lost or destroyed device
 
 Examples:
 
@@ -92,7 +92,7 @@ SSD failure
 hardware destruction
 ```
 
-### CLASS C — Suspected or confirmed compromise
+### CLASS C - Suspected or confirmed compromise
 
 Examples:
 
@@ -105,7 +105,7 @@ unexpected Vault session evidence
 
 Treat all old-device operational secrets as exposed.
 
-### CLASS D — Permanent retirement without replacement
+### CLASS D - Permanent retirement without replacement
 
 Removing one core primary breaks the two-endpoint cross-authorization assumption.
 

@@ -1,4 +1,4 @@
-# THE VAULT — POST-INSTALL DETECTION, INCIDENT VISIBILITY, AND CREDENTIAL CUSTODY
+# THE VAULT - POST-INSTALL DETECTION, INCIDENT VISIBILITY, AND CREDENTIAL CUSTODY
 ================================================================================
 
 > **Status: mandatory production-entry stage for the core Vault baseline.**
@@ -159,7 +159,7 @@ Do not continue until the test arrives.
 
 ---
 
-# PART I — AWS-SIDE DETECTION PLANE
+# PART I - AWS-SIDE DETECTION PLANE
 ================================================================================
 
 ## 3. Create the shared detection-state table
@@ -209,7 +209,7 @@ MAINTENANCE#phone    optional temporary admin-change window
 
 ---
 
-## 4. Daily-slot consumption alert — VaultSlotWatch
+## 4. Daily-slot consumption alert - VaultSlotWatch
 
 ### Why use DynamoDB Streams instead of only CloudTrail
 
@@ -435,7 +435,7 @@ aws dynamodb delete-item --region "$AWS_REGION" --table-name "$SLOT_TABLE" \
 
 ---
 
-## 5. Tailscale configuration-audit anomaly detector — VaultAuditWatch
+## 5. Tailscale configuration-audit anomaly detector - VaultAuditWatch
 
 ### 5.1 What the detector can and cannot see
 
@@ -1124,7 +1124,7 @@ Do not delete or modify a production primary node merely to test an alarm.
 
 ---
 
-## 6. STS backup-role caller validation — VaultStsWatch
+## 6. STS backup-role caller validation - VaultStsWatch
 
 The issuance Lambda is supposed to be the **only** principal that calls `AssumeRole` for
 the corresponding backup role. Watch this at AWS control-plane level.
@@ -1305,7 +1305,7 @@ any other caller                                       -> SNS CRITICAL
 Set `SEND_EXPECTED_STS=true` temporarily for one acceptance test if you want one INFO
 email for a normal session, then set it back to `false`.
 
-### 6.5 Completion-revocation IAM caller validation — VaultCompletionPolicyWatch
+### 6.5 Completion-revocation IAM caller validation - VaultCompletionPolicyWatch
 
 A healthy completed S3 backup causes one device-specific completion revoker to update
 only the matching backup role's inline policy named:
@@ -1452,7 +1452,7 @@ caller targeting either backup role is CRITICAL.
 
 ---
 
-## 6A. Coordinator authorization-failure detector — VaultAuthFailureWatch
+## 6A. Coordinator authorization-failure detector - VaultAuthFailureWatch
 
 ### Why this detector exists
 
@@ -2106,7 +2106,7 @@ that false-positive fatigue is not an acceptable excuse.
 
 ---
 
-## 6B. RHEL local-gate authorization-failure detector — VaultRhelAuthFailureWatch
+## 6B. RHEL local-gate authorization-failure detector - VaultRhelAuthFailureWatch
 
 `VaultAuthFailureWatch` on the two Vault VPSs covers phase-token and cross-VPS
 coordinator rejection events. It does not observe requests that reach the independent
@@ -2403,7 +2403,7 @@ slot, isolated backend, and signed systemd hard-stop. Detection does not replace
 
 ---
 
-# PART II — OPTIONAL LOCAL TRIPWIRES AND EGRESS VISIBILITY
+# PART II - OPTIONAL LOCAL TRIPWIRES AND EGRESS VISIBILITY
 ================================================================================
 
 ## 9. Local canary files: optional high-signal tripwire, not primary detection
@@ -2487,7 +2487,7 @@ by listening on commonly targeted but unused ports:
 ```text
 TCP 22    (if SSH is moved to a non-standard port)
 TCP 8080  (common admin/proxy port)
-TCP 3389  (RDP — should never be used on RHEL)
+TCP 3389  (RDP - should never be used on RHEL)
 ```
 
 Use lightweight listeners (netcat or a minimal Python socket) that log and alert on any
@@ -2567,7 +2567,7 @@ a fail-closed global output policy.
 
 ---
 
-# PART III — CREDENTIAL CUSTODY STANDARD
+# PART III - CREDENTIAL CUSTODY STANDARD
 ================================================================================
 
 ## 11. Stop treating every secret the same
@@ -2576,9 +2576,9 @@ Use three classes:
 
 | Class | Examples | Storage rule |
 |---|---|---|
-| A — Break-glass/account recovery | AWS root password, root recovery records, Tailscale Tailnet Lock disablement secrets, VPS provider owner recovery codes | Offline/separated; never needed by routine services |
-| B — Human admin credentials | Tailscale IdP admin login, AWS Identity Center admin, SSH admin authentication | Interactive; phishing-resistant MFA; short sessions; no machine-readable long-lived secret where avoidable |
-| C — Runtime machine secrets | VPS cross-signing private key, unavoidable `devices:core` OAuth client secret | Only the owning compartment; service-scoped delivery; encrypted-at-rest where possible; root compromise remains a known boundary |
+| A - Break-glass/account recovery | AWS root password, root recovery records, Tailscale Tailnet Lock disablement secrets, VPS provider owner recovery codes | Offline/separated; never needed by routine services |
+| B - Human admin credentials | Tailscale IdP admin login, AWS Identity Center admin, SSH admin authentication | Interactive; phishing-resistant MFA; short sessions; no machine-readable long-lived secret where avoidable |
+| C - Runtime machine secrets | VPS cross-signing private key, unavoidable `devices:core` OAuth client secret | Only the owning compartment; service-scoped delivery; encrypted-at-rest where possible; root compromise remains a known boundary |
 
 A password manager is excellent for many Class A/B records, but **the location of the
 password-manager database matters**. Do not place the only break-glass copy inside the
@@ -2586,7 +2586,7 @@ same Vault repository or cloud account whose loss you are trying to recover.
 
 ---
 
-## 12. AWS account root user — break-glass only
+## 12. AWS account root user - break-glass only
 
 ### 12.1 Terminology
 
@@ -3088,7 +3088,7 @@ phishing-resistant.
 
 ---
 
-# PART IV — INCIDENT RESPONSE AND ROTATION
+# PART IV - INCIDENT RESPONSE AND ROTATION
 ================================================================================
 
 ## 21. First response matrix
@@ -3239,7 +3239,7 @@ usage rather than a continuously running security VM.
 
 ---
 
-## 24. Security limits — do not overclaim
+## 24. Security limits - do not overclaim
 
 This guide improves detection, not omniscience.
 
@@ -3277,7 +3277,7 @@ The intended security statement is:
 > leave server-side evidence outside the compromised VPS, or both. Detection failure is
 > itself surfaced as a security event where practical.
 
-# PART IV — SERVICE-CONFINEMENT VISIBILITY
+# PART IV - SERVICE-CONFINEMENT VISIBILITY
 ================================================================================
 
 ## 25. Detect hardening drift and confinement failures

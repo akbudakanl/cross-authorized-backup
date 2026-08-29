@@ -1,7 +1,7 @@
 ---
 status: rejected
 ---
-# VAULT EXTENSION — ADD PEER RELAY ONLY AFTER A MEASURED DERP PERFORMANCE FAILURE
+# VAULT EXTENSION - ADD PEER RELAY ONLY AFTER A MEASURED DERP PERFORMANCE FAILURE
 ================================================================================
 
 This extension is currently rejected for security reasons, as opening an additional UDP port is not desired at this time. However, it may be reconsidered in the future if the current DERP solution leads to transfer speed degradation caused by the "TCP meltdown" problem.
@@ -788,7 +788,7 @@ documented by this extension.
 ## HARDENING COMPATIBILITY DELTA
 
 This extension is subordinate to the core master guide's
-`PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
+`PART 2A: PRODUCTION SERVICE CONFINEMENT - SYSTEMD AND PODMAN HARDENING`.
 
 Rules:
 

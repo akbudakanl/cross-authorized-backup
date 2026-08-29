@@ -3,7 +3,7 @@ status: pending
 ---
 # Extension: Phase-Liveness Gating (Mid-Session Mutual Termination)
 
-> **Status: pending — deferred.** Requires measured calibration data before any
+> **Status: pending - deferred.** Requires measured calibration data before any
 > decision. See the operator review checklist at the end of this file.
 
 ## 1. Problem statement
@@ -14,7 +14,7 @@ transfer. Today, once a dual-signed proof opens a session, a brief control-socke
 loss does **not** revoke the issued STS credential or close an open RHEL backend
 (guide §23.4 pairing notes; threat model T-01/T-11 residuals). Mid-session abuse by
 malware sharing the window is therefore bounded only by successful-completion
-containment (S3) or the signed one-hour deadline (both legs) — up to ~60 minutes
+containment (S3) or the signed one-hour deadline (both legs) - up to ~60 minutes
 regardless of whether the opposite primary is still present.
 
 ## 2. Design
@@ -51,7 +51,7 @@ transfer. Nothing is revoked unless snapshot+lock-release evidence completes.
 Security properties:
 
 * A compromised endpoint cannot forge the opposite attestation (no key).
-* `PHASE_LIVE` carries no issuance authority — it cannot open, extend, reset, or
+* `PHASE_LIVE` carries no issuance authority - it cannot open, extend, reset, or
   mint anything; abuse ceiling is denial of service, identical in kind to the
   already-accepted `CLOSE_PEER` fail-safe DoS.
 * Opening guarantees are untouched: dual signatures, live phases, slots, MFA.
@@ -62,7 +62,7 @@ This shrinks the mid-session residual in T-01/T-07/T-11 from "≤ 1 hour" to
 "≤ grace period" for the specific case where the clean peer goes dark mid-window.
 It does NOT change who can open sessions, and it adds nothing against an endpoint
 that stays online (the endpoint itself is always inside its own window). Treat it
-as incremental tightening toward the stated goal — worthwhile, not transformative.
+as incremental tightening toward the stated goal - worthwhile, not transformative.
 
 ## 4. Trade-offs and known hazards (must be resolved, not ignored)
 

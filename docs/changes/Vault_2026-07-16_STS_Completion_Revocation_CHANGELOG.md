@@ -1,4 +1,4 @@
-# THE VAULT — 2026-07-16 S3 SUCCESSFUL-COMPLETION CONTAINMENT CHANGELOG
+# THE VAULT - 2026-07-16 S3 SUCCESSFUL-COMPLETION CONTAINMENT CHANGELOG
 
 ## 1. Reason for this revision
 
@@ -221,7 +221,7 @@ negative and propagation tests
 Until this full set passes the documented day-zero tests, retain the older threat-model
 statement: already-issued STS/proxy use may continue until the signed hard deadline.
 
-## 10. Follow-up detection hardening — authorization-failure visibility
+## 10. Follow-up detection hardening - authorization-failure visibility
 
 A same-day follow-up review asked whether an attacker could silently submit unlimited
 phase-token guesses or forged cross-VPS authorization payloads.

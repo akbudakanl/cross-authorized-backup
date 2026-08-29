@@ -1,4 +1,4 @@
-# THE VAULT: ZERO TRUST MASTER GUIDE — CORE BASELINE
+# THE VAULT: ZERO TRUST MASTER GUIDE - CORE BASELINE
 # OUTBOUND-ONLY • NO-PRUNE • TAILSCALE + TAILNET LOCK • TAILSCALE-HOSTED DERP • RHEL 9 VPS HOSTS
 ================================================================================
 
@@ -120,7 +120,7 @@ RETENTION:
   85% is a hard ingestion stop and migration trigger
 ```
 
-## HOW THE SESSION ACTUALLY WORKS — READ BEFORE INSTALLING
+## HOW THE SESSION ACTUALLY WORKS - READ BEFORE INSTALLING
 
 The easiest way to misunderstand this system is to attribute its security to “the VPN
 closes when backup finishes.” That is only one cleanup layer. The actual guarantees are
@@ -247,7 +247,7 @@ If the network also blocks the Tailscale control/backend/DERP HTTPS paths, the s
 fails closed. There is no “connect directly to S3 without the VPS” fallback and no
 “temporarily expose RHEL publicly” fallback.
 
-## INSTALLATION ORDER — DO NOT IMPROVISE THE DEPENDENCY GRAPH
+## INSTALLATION ORDER - DO NOT IMPROVISE THE DEPENDENCY GRAPH
 
 1. Read and customize the threat model.
 2. Prepare the PC, Phone, password manager, MFA factors, RHEL host, and two VPSs; final break-glass/admin custody is completed by the post-install security guide.
@@ -264,7 +264,7 @@ fails closed. There is no “connect directly to S3 without the VPS” fallback 
 13. Install the complete PC and Termux daily workflows.
 14. Initialize S3 and RHEL repositories through the real gates; never initialize by bypassing them.
 15. Run every day-zero negative test before storing irreplaceable data.
-16. Apply `PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING` and pass its negative tests.
+16. Apply `PART 2A: PRODUCTION SERVICE CONFINEMENT - SYSTEMD AND PODMAN HARDENING` and pass its negative tests.
 17. Apply `Vault_Post_Install_Detection_and_Credential_Custody.md` and pass its negative/health tests.
 18. Record baseline capacity and begin normal operation.
 
@@ -316,7 +316,7 @@ fails closed. There is no “connect directly to S3 without the VPS” fallback 
 [ ] vault-pc and vault-phone do not share one ordinary software SSH private key.
 ```
 
-## How This Works — Core Principles
+## How This Works - Core Principles
 
 The computer and phone are **source-only backup clients**. Neither primary device runs
 Vault Caddy, rest-server, WebDAV, SSH, or any other Vault receiver service. Neither
@@ -347,9 +347,9 @@ Phone plaintext
 > This perfectly handles block-level changes efficiently without copying massive files daily. Even if a MicroVM is compromised and the `.img` is corrupted, the RHEL Host safely backs up the corrupted blob to the USB without interpreting it, keeping the Host pristine.
 >
 > **Trust Model of the External Drive (TOFU Scope)**
-> The external drive is covered by the same TOFU (Trust On First Use) model that applies to all other devices in this architecture. This model is introduced in full detail in `Vault_Extension_Totally_Self_Hosted_321_Backup_Strategy.md` and is present here in the core guide as the default configuration. For security, the external drive should be treated as initially trusted — but beyond that initial trust grant, it must remain **exclusively connected to the RHEL server**. Connecting it to any other machine (e.g., a PC or phone) widens the trust boundary unnecessarily.
+> The external drive is covered by the same TOFU (Trust On First Use) model that applies to all other devices in this architecture. This model is introduced in full detail in `Vault_Extension_Totally_Self_Hosted_321_Backup_Strategy.md` and is present here in the core guide as the default configuration. For security, the external drive should be treated as initially trusted - but beyond that initial trust grant, it must remain **exclusively connected to the RHEL server**. Connecting it to any other machine (e.g., a PC or phone) widens the trust boundary unnecessarily.
 >
-> It is also important to clarify the role of the external drive within the threat model: **the drive is not a transport channel.** It does not actively relay or route any data between devices. It functions purely as an additional passive storage unit — a third physical copy of the already-opaque `.img` blobs. As an alternative with equivalent security properties, a **second internal disk** installed in the RHEL server could also have been used here instead of an external USB drive.
+> It is also important to clarify the role of the external drive within the threat model: **the drive is not a transport channel.** It does not actively relay or route any data between devices. It functions purely as an additional passive storage unit - a third physical copy of the already-opaque `.img` blobs. As an alternative with equivalent security properties, a **second internal disk** installed in the RHEL server could also have been used here instead of an external USB drive.
 >
 > [!NOTE]
 > **Prune Limitation:** Pruning is not possible when transferring data from the client (phone/computer) into the MicroVMs on the RHEL server because doing so would require either removing the `--append-only` flag or storing restic keys on the server. Since we accept neither compromise, pruning is currently not applied. HOWEVER, pruning can be applied when synchronizing the `.img` file from the RHEL Host to an external USB drive via restic, as there is no password at this stage. (To be detailed in the future)
@@ -547,7 +547,7 @@ remain on their owning VPS only.
 ---
 
 
-### Two-compartment VPS infrastructure invariant — **2 VPS required**
+### Two-compartment VPS infrastructure invariant - **2 VPS required**
 
 The core baseline uses two independent security compartments:
 
@@ -588,8 +588,8 @@ mandatory even with Tailnet Lock enabled.
 
 ```text
 Threat priority:
-  T1/T2 — one compromised primary endpoint
-  VPS-C — one fully compromised compartment VPS
+  T1/T2 - one compromised primary endpoint
+  VPS-C - one fully compromised compartment VPS
 
 Security objective:
   one device or one VPS must not independently create a fresh S3 STS session or open
@@ -640,7 +640,7 @@ phase, is outside the single-compromise guarantee and belongs in the risk regist
 
 ---
 
-## Section 0 — Primary Device Baseline
+## Section 0 - Primary Device Baseline
 
 ### Fedora computer
 
@@ -694,7 +694,7 @@ Keep `~/Vault_Phone_Ciphertext` in Termux private internal storage.
 
 ---
 
-## Section 1 — Source Restic Passwords
+## Section 1 - Source Restic Passwords
 
 Generate a different high-entropy restic password for each source repository family.
 The same source password is used by that source's S3 and RHEL repositories so the
@@ -720,7 +720,7 @@ source password to the other primary device.
 
 ---
 
-## Section 2 — Device-Specific VPS Phase Tokens
+## Section 2 - Device-Specific VPS Phase Tokens
 
 Generate a different 256-bit token on each primary device. The historical filename
 `oracle_phase_token` is retained so the already-audited local secret layout does not
@@ -760,7 +760,7 @@ Never put both raw tokens or both verifiers on one VPS. The coordinator derives 
 the local-device identity from its own verifier; the opposite device approval is proven
 by the opposite VPS Ed25519 signature.
 
-## Section 3 — Two Separate Tailscale Tailnets, Tailnet Lock, and Outbound-Only Invariant
+## Section 3 - Two Separate Tailscale Tailnets, Tailnet Lock, and Outbound-Only Invariant
 
 The PC and Phone are deliberately placed in different tailnets:
 
@@ -793,7 +793,7 @@ Vault application connection to it.
 
 ---
 
-## Section 4 — Integrity and Capacity Philosophy
+## Section 4 - Integrity and Capacity Philosophy
 
 Routine keyed repository verification is split by storage tier:
 
@@ -836,7 +836,7 @@ scope risks.
 
 ---
 
-## Section 5 — Recovery Principle
+## Section 5 - Recovery Principle
 
 The PC and phone do not recover from one another. Device loss is recovered from RHEL
 or S3:
@@ -873,7 +873,7 @@ If PAR2 repair fails or is unavailable, and `restic check` continues to report c
 
 ---
 
-## Retention Mode — Keep-All-History / No-Prune
+## Retention Mode - Keep-All-History / No-Prune
 
 This variant intentionally contains no routine `restic forget` or `restic prune` path. RHEL stores no source repository password. Capacity pressure is handled by the 70/80/85 monitoring model and the separate retention-migration roadmap.
 
@@ -1072,7 +1072,7 @@ permissions remain capped by its own bucket and fixed egress envelope.
 Enable IAM Identity Center and require MFA for the dedicated Vault user. Create two
 one-hour permission sets:
 
-> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** The default documented layout uses TOTP
+> **[OPTIONAL UPGRADE - YubiKey / FIDO2]** The default documented layout uses TOTP
 > (Time-based One-Time Password) for AWS IAM Identity Center MFA. TOTP provides
 > 1-in-1,000,000 theoretical predictability per window and is phishing-susceptible.
 > If a FIDO2 hardware security key (e.g. YubiKey 5 Series or any FIDO2-certified
@@ -1081,7 +1081,7 @@ one-hour permission sets:
 > (origin binding prevents replay on fake domains), and cannot be extracted from the
 > token. Assign one key to the PC identity and a separate key (or the same physical
 > key stored separately) to the Phone identity. This upgrade does not change any other
-> part of the ceremony — the dual-VPS Ed25519 requirement remains the primary
+> part of the ceremony - the dual-VPS Ed25519 requirement remains the primary
 > authorization barrier regardless of MFA method strength.
 
 ```text
@@ -3193,72 +3193,72 @@ require operator investigation and explicit manual recovery.
 Run these tests before repository initialization:
 
 ```text
-Test A — one signature missing
+Test A - one signature missing
 Expected: Lambda rejects proof; no DynamoDB row for that slot.
 
-Test A2 — own SSO/MFA succeeds but the opposite primary never joins `s3`
+Test A2 - own SSO/MFA succeeds but the opposite primary never joins `s3`
 Expected: no dual-signed proof exists, the gate is never validly invoked, and no daily
 slot or STS credential is created. MFA alone is not backup-opening authority.
 
-Test B — wrong target
+Test B - wrong target
 Send an S3_PHONE proof to the PC gate.
 Expected: Lambda rejects `wrong proof target`; no PC slot consumed.
 
-Test C — wrong calendar date
+Test C - wrong calendar date
 Expected: Lambda rejects `calendar date mismatch`.
 
-Test D — first valid invocation
+Test D - first valid invocation
 Expected: daily row appears with `completion_state=OPEN`; one STS credential set returned.
 
-Test E — second valid invocation, same device/day
+Test E - second valid invocation, same device/day
 Expected: `DailySlotConsumed`; no second STS result.
 
-Test F — PC role against Phone bucket
+Test F - PC role against Phone bucket
 Expected: AccessDenied.
 
-Test G — PC credential used without PC VPS egress IP
+Test G - PC credential used without PC VPS egress IP
 Expected: AccessDenied because `aws:SourceIp` condition fails.
 
-Test H — emergency deny policy attached
+Test H - emergency deny policy attached
 Expected: both backup roles receive S3 AccessDenied regardless of their ordinary allow.
 
-Test I — snapshot-created completion event only
+Test I - snapshot-created completion event only
 Expected: `snapshot_seen_at` may be recorded, but state remains OPEN; no
 `AWSRevokeOlderSessions` cutoff is created yet.
 
-Test J — lock-removal event arrives before snapshot-created event
+Test J - lock-removal event arrives before snapshot-created event
 Expected: duplicate/out-of-order evidence is retained idempotently; revocation occurs
 only after both facts exist and `lock_removed_at >= snapshot_seen_at`.
 
-Test K — successful snapshot plus later repository-lock removal
+Test K - successful snapshot plus later repository-lock removal
 Expected: exact slot transitions OPEN -> REVOKING -> REVOKED, the first
 `completion_revoke_cutoff` remains immutable, and the matching backup role has inline
 policy `AWSRevokeOlderSessions`.
 
-Test L — old STS reused through the approved VPS after Test K
+Test L - old STS reused through the approved VPS after Test K
 Expected: after IAM policy propagation, S3 returns AccessDenied even though the original
 STS expiration timestamp is still in the future. Do not mint a replacement session.
 
-Test M — read-only completion status exact binding
+Test M - read-only completion status exact binding
 Expected: the correct device/date/exact shared `session_expires_at` returns REVOKED after
 Test K. A changed deadline returns `ABSENT_OR_SESSION_MISMATCH`.
 
-Test N — cross-role revoker privilege
+Test N - cross-role revoker privilege
 Expected: the PC completion execution role cannot `iam:PutRolePolicy` on the Phone backup
 role and cannot list the Phone bucket; Phone is symmetric.
 
-Test O — permissions-boundary containment
+Test O - permissions-boundary containment
 Expected: both backup roles still show the exact boundary ARN. A deliberately broad
 inline Allow in a disposable validation setup does not expand effective permissions past
 the boundary's exact bucket/fixed-egress envelope. Remove the disposable test Allow.
 
-Test P — signed cross-device close with local DONE suppressed
+Test P - signed cross-device close with local DONE suppressed
 Keep the target S3 phase helper connected after its successful backup. After AWS reports
 that target's exact session REVOKED, let the clean opposite workflow issue CLOSE_PEER.
 Expected: target coordinator status becomes CLOSED s3 and target proxy authorization is
 DENY without target cooperation.
 
-Test Q — close replay/wrong-session binding
+Test Q - close replay/wrong-session binding
 Replay an expired close payload or alter its `session_expires_at`.
 Expected: peer coordinator rejects it. Repeating the same still-fresh valid close is
 idempotent and cannot reopen anything.
@@ -3287,7 +3287,7 @@ accept that the day's production backup will not receive another issuance.
 
 ---
 
-## Appendix F — Keep-All-History Capacity Budget and Growth Controls
+## Appendix F - Keep-All-History Capacity Budget and Growth Controls
 
 The finalized default does not use a calendar capacity policy. Capacity planning is
 therefore based on **unique historical churn**: the amount of previously unseen
@@ -6778,7 +6778,7 @@ retain the current Authelia/OIDC authentication model, create separate Tailscale
 client/issuer arrangements for the two compartment tailnets and keep the authenticator
 material off PC, Phone, both VPSs, and RHEL.
 
-> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** Authelia natively supports WebAuthn
+> **[OPTIONAL UPGRADE - YubiKey / FIDO2]** Authelia natively supports WebAuthn
 > (FIDO2) as a second factor alongside TOTP. If a FIDO2 hardware security key is
 > available, configure Authelia to require WebAuthn for the Vault Tailscale OIDC
 > flow in place of TOTP. Each compartment (PC tailnet / Phone tailnet) should use a
@@ -7091,7 +7091,7 @@ profile uses Tailnet Lock as the membership integrity feature.
 In the PC-tailnet **Trust credentials** page:
 
 1. Create an OAuth credential.
-2. Grant only **Devices / Core — Write** (`devices:core`).
+2. Grant only **Devices / Core - Write** (`devices:core`).
 3. Select only the target device's tag (e.g., `tag:pc-device` or similar) as the credential tag permission (Tag Ownership) so the token cannot manipulate tags of the VPS or RHEL server.
 4. Do not grant `all`, policy, auth-key, DNS, route, user, Tailnet Lock, or logging
    scopes.
@@ -7611,7 +7611,7 @@ participants. Then repeat the real campus test and the one-VPS-compromise threat
 ## PART 2: SELF-HOSTED RHEL BACKUP SERVER
 ================================================================================
 
-# Self-Hosted RHEL Backup Server — Dual-Compartment, Dual-Signature, Keyless No-Prune Reference
+# Self-Hosted RHEL Backup Server - Dual-Compartment, Dual-Signature, Keyless No-Prune Reference
 
 > **Variant identity:** this reference is outbound-only / keep-all-history / no-prune.
 > RHEL is an on-premises ciphertext receiver. It stores neither the PC nor the Phone
@@ -7693,7 +7693,7 @@ attacker can still copy encrypted repository bytes.
 This category is defined independently of the transfer pipeline's own hardening. With the
 Kata/Firecracker MicroVM boundary in place, reaching host-level compromise *through the
 pipeline itself* requires a VM escape as the dominant remaining step (Section H4.1.1). RHEL
-root compromise, as a category, is not assumed to arrive through that path — it covers
+root compromise, as a category, is not assumed to arrive through that path - it covers
 administrative access (SSH to this host, `dnf update` supply chain, the session used to
 run `semodule`/`systemctl`) and physical access (Section 3), which remain independent of
 the pipeline's own attack surface no matter how hardened that surface becomes.
@@ -7904,7 +7904,7 @@ Example LVM command shape. Replace devices and sizes with the actual worksheet v
 do not paste placeholder device names into production:
 
 ```bash
-# EXAMPLE ONLY — inspect lsblk and pvs/vgs first.
+# EXAMPLE ONLY - inspect lsblk and pvs/vgs first.
 lsblk -f
 sudo pvs
 sudo vgs
@@ -9496,7 +9496,7 @@ To prevent system instability and ensure a strict ceiling on data ingestion, a c
 
 **Client Experience in Archive Mode:**
 - Attempting to send a new backup from the client will result in a standard HTTP 500/403 error, as the backend filesystem is physically read-only.
-- Conversely, operations that require only reading data—such as restoring files to a new computer or executing `restic check --read-data` for bit-rot verification—will function **flawlessly** over the network, as the read-only HTTP server continues to serve the encrypted pack files exactly as before.
+- Conversely, operations that require only reading data-such as restoring files to a new computer or executing `restic check --read-data` for bit-rot verification-will function **flawlessly** over the network, as the read-only HTTP server continues to serve the encrypted pack files exactly as before.
 
 **Physical Console Verification:**
 To confirm whether the server has transitioned into Permanent Archive Mode, an operator with physical access to the RHEL server console can type the command `usage` into the terminal:
@@ -9826,7 +9826,7 @@ That ordering is not an optimization. It is the fail-closed security invariant.
 ## PART 3: COMPLETE PRIMARY-DEVICE INSTALLATION AND DAILY AUTOMATION
 ================================================================================
 
-# Unified Outbound-Only Workflow — Full PC and Phone Implementation
+# Unified Outbound-Only Workflow - Full PC and Phone Implementation
 
 This part is intentionally operational. It creates the directories, routine secret
 files, phase helper, AWS issuance helper, complete PC script, complete Termux widget,
@@ -10208,7 +10208,7 @@ Create `$HOME/bin/vault-daily-pc`:
 
 ```bash
 #!/usr/bin/env bash
-# vault-daily-pc — one complete PC Vault ceremony: S3 then RHEL.
+# vault-daily-pc - one complete PC Vault ceremony: S3 then RHEL.
 # Authorization issuance is fail-closed. S3 data-plane commands may retry only while
 # the current backup is incomplete and the exact completion state is not REVOKED. RHEL
 # retries reuse only the already-open backend and remain bounded by the signed deadline.
@@ -10767,7 +10767,7 @@ Create `$HOME/.shortcuts/vault-daily-phone`:
 
 ```bash
 #!/usr/bin/env bash
-# vault-daily-phone — one complete Phone Vault ceremony: S3 then RHEL.
+# vault-daily-phone - one complete Phone Vault ceremony: S3 then RHEL.
 # Authorization issuance is fail-closed. S3 data-plane commands may retry only while
 # the current backup is incomplete and the exact completion state is not REVOKED. RHEL
 # retries reuse only the already-open backend and remain bounded by the signed deadline.
@@ -11393,8 +11393,8 @@ A normal day is intentionally simple:
 1. Ensure the RHEL server is powered on and booted if using on-demand power.
 2. Prepare the configured MFA factor for each device identity.
    Current default: TOTP (seed for PC identity stored on Phone; seed for Phone identity
-   stored on PC — cross-device custody, not air-gapped).
-   [OPTIONAL UPGRADE — YubiKey / FIDO2]: replace TOTP with a FIDO2 hardware security
+   stored on PC - cross-device custody, not air-gapped).
+   [OPTIONAL UPGRADE - YubiKey / FIDO2]: replace TOTP with a FIDO2 hardware security
    key for both AWS IAM Identity Center and Authelia/Tailscale MFA. See Sections 22.6
    and 24.7 for upgrade guidance.
 3. Confirm PC Tailscale is logged out/expired from the previous ceremony as expected.
@@ -11443,7 +11443,7 @@ restic upgrades:
 
 ```text
 1. Use the separate MFA-protected recovery permission path with RestoreObject.
-   [OPTIONAL UPGRADE — YubiKey / FIDO2]: the recovery/admin permission path is the
+   [OPTIONAL UPGRADE - YubiKey / FIDO2]: the recovery/admin permission path is the
    highest-value target for a FIDO2 hardware security key. Unlike the daily backup
    flow (which is protected by dual-VPS Ed25519 regardless of MFA strength), the
    recovery path is an exceptional single-approver route. Replacing its TOTP factor
@@ -11484,7 +11484,7 @@ is convenience, not proof; inspect exit status and logs if either timestamp is s
 
 ---
 
-## 13. Failure Semantics — What to Do, Exactly
+## 13. Failure Semantics - What to Do, Exactly
 
 ### The opposite device never joins the phase
 
@@ -11634,7 +11634,7 @@ Only after this matrix passes should the folders contain irreplaceable productio
 
 ---
 
-# PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING
+# PART 2A: PRODUCTION SERVICE CONFINEMENT - SYSTEMD AND PODMAN HARDENING
 ================================================================================
 
 > **Mandatory production-entry hardening.**
@@ -11691,7 +11691,7 @@ Do not add `--privileged`, `--security-opt label=disable`, `seccomp=unconfined`,
 broad host bind mount to any Vault Podman command. Any such change is an architecture
 review event, not routine troubleshooting.
 
-## H2. Fedora — run the PC workflow as a confined user service
+## H2. Fedora - run the PC workflow as a confined user service
 
 The phone/Termux workflow is not managed by systemd and is unchanged by this section.
 On Fedora, create the exact source and required workflow paths first:
@@ -11723,7 +11723,7 @@ Create `$HOME/.config/systemd/user/vault-daily-pc.service`:
 
 ```ini
 [Unit]
-Description=Vault PC daily backup workflow — confined single-source execution
+Description=Vault PC daily backup workflow - confined single-source execution
 After=network-online.target tailscaled.service
 Wants=network-online.target
 
@@ -11830,7 +11830,7 @@ rm -f "$HOME/Vault_PC_Ciphertext/.vault-hardening-canary"
 Expected: the transient unit reads the canary, its write attempt fails, and the original
 canary remains unchanged.
 
-## H3. RHEL 9 Vault VPSs — dedicated users, DAC, and systemd confinement
+## H3. RHEL 9 Vault VPSs - dedicated users, DAC, and systemd confinement
 
 The core `vault-pc` and `vault-phone` hosts are RHEL 9 BYOL/BYOI systems with
 SELinux **Enforcing**.
@@ -12088,7 +12088,7 @@ re-measure the real S3 egress IPv4
 Do not restore an x86_64 custom image snapshot onto an Arm shape or treat a major RHEL
 upgrade as an ordinary unattended package update.
 
-## H4. RHEL — per-service filesystem and kernel isolation
+## H4. RHEL - per-service filesystem and kernel isolation
 
 ### H4.1 Rootless rest-server Podman baseline is mandatory
 
@@ -12140,15 +12140,15 @@ use Firecracker as the VMM and KVM as the hypervisor; they differ in how the hos
 manages the guest:
 
 ```text
-Alternative Path — Kata Containers (H4.1.1)
+Alternative Path - Kata Containers (H4.1.1)
   Kata's containerd shim manages the VM lifecycle via ttrpc over vsock.
   A guest-side agent receives commands; Agent Policy (OPA/Rego) filters
   the allowed ttrpc API surface.  The tradeoff: OCI ecosystem integration
   and simpler updates, but the host parses guest-controlled ttrpc responses
-  through kata-shim-v2 — an additional host-side attack surface beyond the
+  through kata-shim-v2 - an additional host-side attack surface beyond the
   hypervisor boundary.
 
-Primary Path — Bare Firecracker (H4.1.2)
+Primary Path - Bare Firecracker (H4.1.2)
   Firecracker runs directly via its HTTP API + jailer.  No agent, no shim,
   no vsock.  The guest boots, starts rest-server, and serves HTTP over
   virtio-net.  The tradeoff: the host-guest protocol channel is eliminated
@@ -12157,7 +12157,7 @@ Primary Path — Bare Firecracker (H4.1.2)
 ```
 
 A feasibility spike (H4.1.3) determines which path to commit. Neither is removed
-from the guide — the unchosen path remains a documented, tested fallback.
+from the guide - the unchosen path remains a documented, tested fallback.
 
 ### H4.1.1 Advanced Hardening: Kata Containers MicroVM Isolation (Alternative Path)
 
@@ -12242,7 +12242,7 @@ As an ultimate failsafe against a container-to-host VMM breakout, the backend ZF
 > - **Stdio Implicit Dependency:** Before enforcing the production deny policy, verify through isolated testing that the container creation flow (`CreateContainer` → `StartContainer`) does not implicitly require `ReadStdout`/`ReadStderr`/`CloseStdin` handshakes. If it does, selectively re-enable only the required stdio RPC and document the reason.
 > - **`internetworking_model = none` Compatibility:** Test whether setting `internetworking_model = "none"` in Kata's `configuration.toml` is compatible with the per-repository network namespace + TAP layout. If compatible, all network-setup RPCs (`UpdateInterface`, `UpdateRoutes`, `AddARPNeighbors`) become unnecessary and the allowlist shrinks further. IP/route configuration is embedded statically in the guest rootfs or kernel command line.
 
-#### 6. Kata Agent Policy — Default-Deny ttrpc Request Filtering (OPA/Rego)
+#### 6. Kata Agent Policy - Default-Deny ttrpc Request Filtering (OPA/Rego)
 
 Do not fork or hand-patch the Kata agent source to disable dangerous APIs. Kata ships
 an official mechanism called **Agent Policy**: an OPA/Rego-based allowlist that the
@@ -12287,7 +12287,7 @@ default GetMetricsRequest         := true
 default CheckRequest              := true
 
 # ── Network setup (required during sandbox boot;
-#    removable if internetworking_model = none — see below) ─
+#    removable if internetworking_model = none - see below) ─
 default UpdateInterfaceRequest  := true
 default UpdateRoutesRequest     := true
 default ListInterfacesRequest   := true
@@ -12302,10 +12302,10 @@ default ExecProcessRequest       := false   # data-leak: exec into guest
 default ReadStreamRequest        := false   # data-leak: log streaming
 default WriteStreamRequest       := false   # unnecessary stream write
 default CopyFileRequest          := false   # file injection into guest
-default SignalProcessRequest     := false   # unnecessary — RemoveContainer
+default SignalProcessRequest     := false   # unnecessary - RemoveContainer
                                             #   already forces termination
 default WriteStdinRequest        := false   # podman attach/exec channel only
-default ReadStdoutRequest        := false   # podman logs channel only — not
+default ReadStdoutRequest        := false   # podman logs channel only - not
                                             #   rest-server network I/O
 default ReadStderrRequest        := false   # same as ReadStdout
 default CloseStdinRequest        := false   # same category
@@ -12313,11 +12313,11 @@ default TtyWinResizeRequest      := false   # interactive TTY
 default UpdateContainerRequest   := false   # cgroup modification
 default StatsContainerRequest    := false   # container stats
 default ListProcessesRequest     := false   # process listing (debug)
-default PauseContainerRequest    := false   # pause — no use case
-default ResumeContainerRequest   := false   # resume — no use case
-default AddSwapRequest           := false   # swap — unnecessary
+default PauseContainerRequest    := false   # pause - no use case
+default ResumeContainerRequest   := false   # resume - no use case
+default AddSwapRequest           := false   # swap - unnecessary
 default MemHotplugByProbeRequest := false   # memory hotplug probe
-default GetOOMEventRequest       := false   # OOM event — unnecessary
+default GetOOMEventRequest       := false   # OOM event - unnecessary
 ```
 
 Key design decisions behind the deny choices:
@@ -12327,7 +12327,7 @@ SignalProcess → DENY
   RemoveContainer already carries its own forced-termination + timeout
   guarantee: it waits for all processes to exit and errors if a process
   cannot be killed within the timeout.  SignalProcess only adds "graceful
-  SIGTERM first, then SIGKILL after a grace period" — i.e. podman-stop-
+  SIGTERM first, then SIGKILL after a grace period" - i.e. podman-stop-
   style polite shutdown.  In the Vault architecture every ceremony is a
   full CreateSandbox → … → DestroySandbox cycle, the signed hard-deadline
   model already accepts mid-transfer hard cuts (DONE suppression cannot
@@ -12352,7 +12352,7 @@ Stdio (WriteStdin / ReadStdout / ReadStderr / CloseStdin) → DENY
   handshake before enforcing this in production.
 ```
 
-**Deployment — embedded in guest rootfs (preferred for Vault):**
+**Deployment - embedded in guest rootfs (preferred for Vault):**
 
 ```bash
 AGENT_POLICY=yes \
@@ -12367,13 +12367,13 @@ as a pod annotation (`io.katacontainers.config.agent.policy`), but for the
 Vault's dedicated single-workload MicroVM the build-time embedding is
 simpler and avoids an injection path.
 
-**Network RPC optimization — `internetworking_model = none`:**
+**Network RPC optimization - `internetworking_model = none`:**
 
 Before finalizing the network portion of the allowlist, check whether Kata's
 `configuration.toml` setting `internetworking_model = "none"` is compatible
 with the per-repository network namespace + TAP layout documented in
 Section 12. When set to `none`, Kata skips automatic guest network
-configuration entirely — no `UpdateInterface`, `UpdateRoutes`, or
+configuration entirely - no `UpdateInterface`, `UpdateRoutes`, or
 `AddARPNeighbors` RPCs are issued. IP and route information is instead
 embedded statically in the guest rootfs or kernel command line. This aligns
 with the static-IP / manual-TAP philosophy already described in the custom
@@ -12403,12 +12403,12 @@ c) Default-deny draft test
      results.
 
 d) Failure-driven incremental additions
-     Kata agent policy violations are not silent — the agent returns an
+     Kata agent policy violations are not silent - the agent returns an
      explicit "blocked by policy" error identifying the rejected RPC.
      Start from the default-deny draft and add RPCs one at a time as
      errors appear.  Do not bulk-allow entire categories (e.g. "all
      network RPCs"); test UpdateInterface, UpdateRoutes, AddARPNeighbors,
-     ListInterfaces, and ListRoutes individually — some may never trigger
+     ListInterfaces, and ListRoutes individually - some may never trigger
      in the Vault's specific scenario.
 
 e) Negative tests
@@ -12440,9 +12440,9 @@ f) internetworking_model = none optimization
 > binary or the policy file and bypass the filter. This is the same class of
 > limitation as the `chattr +a` protection in Step 3: both defend against
 > application-level escalation inside the MicroVM, not against guest-root
-> compromise. The outer layers — SELinux MAC on the host (Step 2), host
+> compromise. The outer layers - SELinux MAC on the host (Step 2), host
 > filesystem `noexec,nodev,nosuid` (Step 5), the opaque block-image model,
-> and the offline USB restic sync — remain the actual boundary against a
+> and the offline USB restic sync - remain the actual boundary against a
 > guest-root attacker. Despite this limitation, Agent Policy is free,
 > officially maintained, and strictly more capable than a hand-patched fork,
 > so there is no reason not to adopt it as defense in depth.
@@ -12450,12 +12450,12 @@ f) internetworking_model = none optimization
 ### H4.1.2 Advanced Hardening: Bare Firecracker MicroVM Isolation (Primary Path)
 
 Instead of wrapping the rest-server container in a Kata-managed Firecracker MicroVM,
-this path runs Firecracker directly — with no guest agent, no containerd shim, no
+this path runs Firecracker directly - with no guest agent, no containerd shim, no
 vsock channel, and no ttrpc protocol. The guest boots a minimal Linux kernel, mounts
 the repository block device, starts rest-server, and serves HTTP over virtio-net.
 Nothing else connects the guest to the host.
 
-The security advantage is not memory safety — Kata's agent (Rust) and shim (Go) are
+The security advantage is not memory safety - Kata's agent (Rust) and shim (Go) are
 already memory-safe. What this path eliminates is an **entire protocol**: the
 ttrpc/RPC state machine that the host-side `kata-shim-v2` must parse on every guest
 response. Logic bugs, unexpected state transitions, and deserialization-confusion
@@ -12471,10 +12471,10 @@ Host-guest channel            vsock + ttrpc            virtio-blk + virtio-net O
 Host process parsing          kata-shim-v2 (ttrpc      Firecracker VMM (virtio
   guest-controlled data         response parser)         device emulation only)
 Guest-to-host escape          KVM/FC exploit            KVM/FC exploit
-  without VM escape?            OR shim logic bug         ONLY — no other channel
+  without VM escape?            OR shim logic bug         ONLY - no other channel
 Agent Policy needed?          Yes (guest-internal)      No (no agent exists)
 Exec/logs/cp                  Denied by OPA policy      Structurally impossible
-vsock configured?             Yes (ttrpc transport)     No — not configured at all
+vsock configured?             Yes (ttrpc transport)     No - not configured at all
 ```
 
 > [!IMPORTANT]
@@ -12482,7 +12482,7 @@ vsock configured?             Yes (ttrpc transport)     No — not configured at
 > untrusted input from," not "safer language." Kata was never the unsafe-language
 > option to begin with.
 
-#### 2. Component Inventory — Reused vs Custom
+#### 2. Component Inventory - Reused vs Custom
 
 ```text
 Component          Source                          Custom work required
@@ -12503,13 +12503,13 @@ Crash detection    Host-side timeout + kill FC     ~10 lines bash (new)
 ```
 
 The genuinely custom parts are the rootfs-baking script and the readiness/crash-
-detection glue — both small, bounded, and inspectable. The kernel, Firecracker binary,
+detection glue - both small, bounded, and inspectable. The kernel, Firecracker binary,
 API protocol, jailer, and network plumbing are reused from documented, tested recipes.
 
 #### 3. Guest Kernel Build
 
 Use the Firecracker team's production-grade kernel configuration as a starting point.
-This is a reused recipe, not new design — but "one command" compresses some
+This is a reused recipe, not new design - but "one command" compresses some
 prerequisite work.
 
 ```bash
@@ -12533,10 +12533,10 @@ make vmlinux -j$(nproc)
 ```
 
 **Kernel updates:** when a kernel CVE is disclosed, repeat the build with the patched
-source. There is no `dnf update kernel` inside the guest — the kernel is a static
+source. There is no `dnf update kernel` inside the guest - the kernel is a static
 artifact you rebuild and redeploy.
 
-#### 4. Rootfs — Minimal ext4 with rest-server
+#### 4. Rootfs - Minimal ext4 with rest-server
 
 Build a minimal ext4 filesystem image containing only rest-server and a working init.
 No shell, no package manager, no SSH:
@@ -12558,7 +12558,7 @@ sudo mount -o loop "$IMG" "$MOUNT"
 # Minimal directory structure
 sudo mkdir -p "$MOUNT"/{bin,sbin,dev,proc,sys,etc/init.d,data,tmp}
 
-# Init — use a static busybox or tini
+# Init - use a static busybox or tini
 sudo cp /path/to/busybox-static "$MOUNT/bin/busybox"
 sudo ln -s /bin/busybox "$MOUNT/sbin/init"
 
@@ -12575,7 +12575,7 @@ sudo tee "$MOUNT/etc/init.d/rcS" > /dev/null << 'INIT'
 # Mount the data block device (second virtio-blk drive)
 /bin/busybox mount /dev/vdb /data
 
-# Static network — no DHCP, no agent, no runtime configuration
+# Static network - no DHCP, no agent, no runtime configuration
 /bin/busybox ip addr add 172.16.0.2/24 dev eth0
 /bin/busybox ip link set eth0 up
 /bin/busybox ip route add default via 172.16.0.1
@@ -12611,16 +12611,16 @@ echo "Built $IMG"
 > libraries. Budget for iteration, not a single clean pass.
 
 Network configuration is embedded statically in the init script. This aligns with the
-`internetworking_model = none` approach discussed in H4.1.1 Step 6 — no agent
+`internetworking_model = none` approach discussed in H4.1.1 Step 6 - no agent
 configures the network; IP and route are constants baked into the rootfs.
 
 **Rootfs updates:** when rest-server is updated, rebuild the image. There is no
 `dnf update` or `pkg upgrade` inside the guest.
 
-#### 5. Firecracker Jailer + Raw HTTP API — No Agent, No Shim
+#### 5. Firecracker Jailer + Raw HTTP API - No Agent, No Shim
 
 Start the MicroVM using Firecracker's jailer and raw HTTP PUT calls. Do not use
-`firectl` — it lacks full feature parity with Firecracker, is positioned as a
+`firectl` - it lacks full feature parity with Firecracker, is positioned as a
 reference client of the Go SDK rather than a hardened production CLI, and adds a
 component-trust dependency inconsistent with this project's philosophy (the same
 reasoning that excluded fwknop). The six raw calls are fully auditable and lose
@@ -12661,7 +12661,7 @@ curl --unix-socket "$FC_SOCK" -X PUT http://localhost/drives/rootfs \
     "is_read_only": true
   }'
 
-# 3. Data disk (pc.img — repository block device, read-write)
+# 3. Data disk (pc.img - repository block device, read-write)
 curl --unix-socket "$FC_SOCK" -X PUT http://localhost/drives/data \
   -d '{
     "drive_id": "data",
@@ -12686,7 +12686,7 @@ curl --unix-socket "$FC_SOCK" -X PUT http://localhost/mmds \
   -H "Content-Type: application/json" \
   -d "{\"latest\": {\"meta-data\": {\"htpasswd\": \"$EPHEMERAL_HTPASSWD\"}}}"
 
-# 5. No vsock — intentionally omitted.
+# 5. No vsock - intentionally omitted.
 #    There is no PUT /vsock call.
 #    The guest has no persistent channel to the host beyond virtio-net.
 
@@ -12710,7 +12710,7 @@ compromised guest is a concern.
 With no guest agent, the host cannot query a health RPC. Two host-side mechanisms are
 required:
 
-**Readiness probe** — TCP connect loop to rest-server's port through the same
+**Readiness probe** - TCP connect loop to rest-server's port through the same
 network path the workload already uses:
 
 ```bash
@@ -12721,7 +12721,7 @@ while ! nc -z 172.16.0.2 8000 2>/dev/null; do
   sleep $INTERVAL
   ELAPSED=$((ELAPSED + INTERVAL))
   if [ $ELAPSED -ge $TIMEOUT ]; then
-    echo "FATAL: rest-server not ready within ${TIMEOUT}s — killing Firecracker"
+    echo "FATAL: rest-server not ready within ${TIMEOUT}s - killing Firecracker"
     kill "$(cat /var/run/firecracker-rest-pc.pid)"
     exit 1
   fi
@@ -12729,7 +12729,7 @@ done
 echo "rest-server is ready"
 ```
 
-**Crash detection** — if the guest kernel panics during boot, nothing tells the host.
+**Crash detection** - if the guest kernel panics during boot, nothing tells the host.
 The readiness timeout above doubles as crash detection: if the TCP probe never
 succeeds within the timeout, the Firecracker process is killed and the ceremony fails
 closed. 
@@ -12754,7 +12754,7 @@ detect the loss and the ceremony's signed hard-stop timer remains the final ceil
 **Debugging a failed boot:** if a rebuilt rootfs fails to boot, there is no SSH
 fallback. Debug by inspecting the image offline (loopback mount on the host) or by
 temporarily re-enabling the serial console (`8250.nr_uarts=1` in boot args) to capture
-kernel output — then removing it before production use.
+kernel output - then removing it before production use.
 
 **Systemd integration:** wrap the jailer invocation, readiness probe, and crash
 timeout in a systemd unit with `Type=exec` and `WatchdogSec=` as a secondary
@@ -12762,7 +12762,7 @@ heartbeat mechanism.
 
 #### 7. SELinux Policy
 
-This is the same class of work as H4.1.1 Step 2 — defining a MAC policy for the
+This is the same class of work as H4.1.1 Step 2 - defining a MAC policy for the
 Firecracker VMM process on the RHEL host. The jailer's own seccomp + chroot + cgroup
 isolation runs underneath SELinux as an independent layer.
 
@@ -12772,7 +12772,7 @@ Follow the same empirical workflow:
 2. Scope permissive mode for that domain (`semanage permissive -a <firecracker_domain_t>`)
 3. Exercise the full workload (boot, backup, teardown)
 4. Review denials with `audit2allow -w -a`
-5. **Critical host-side MAC test** — verify cross-repository isolation:
+5. **Critical host-side MAC test** - verify cross-repository isolation:
    ```bash
    sudo runcon -t <firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/phone.img
    ```
@@ -12805,7 +12805,7 @@ The following protections from H4.1.1 apply identically to Primary Path:
   the repository dataset. Even a VMM breakout cannot execute a written binary on the
   host.
 
-#### 9. Update Pipeline — The Recurring Tax
+#### 9. Update Pipeline - The Recurring Tax
 
 Every component update requires manual rebuild and redeploy:
 
@@ -12845,7 +12845,7 @@ with no interactive fallback if something goes wrong.
 >   `bison`, `elfutils-libelf-devel` on RHEL 9) on the build host. This is a build
 >   dependency, not a runtime dependency on the RHEL backup server.
 
-### H4.1.3 MicroVM Path Decision — Feasibility Spike
+### H4.1.3 MicroVM Path Decision - Feasibility Spike
 
 Do not commit either path into the production CORE baseline without first running a
 bounded feasibility spike. Use the same disposable cloud instance with nested-KVM
@@ -12882,7 +12882,7 @@ Rootfs/kernel update mechanism     dnf update        manual rebuild
 Readiness detection                agent health RPC  TCP probe (custom)
 Guest-internal API hardening       Agent Policy      N/A (no agent)
 Debug access (exec/logs/cp)        denied by policy  structurally absent
-Feasibility spike required?        no (Kata ships)   YES — must pass
+Feasibility spike required?        no (Kata ships)   YES - must pass
 Recurring maintenance tax          lower             higher
 ```
 
@@ -12978,7 +12978,7 @@ podman run -d \
 ```
 *(Note: `--network=host` is safe here because the container is already trapped inside the isolated Linux network namespace built in step 12. Alternatively, map only the required port).*
 
-> **Config/Certificate Delivery — Open Item:**
+> **Config/Certificate Delivery - Open Item:**
 > Firecracker has no shared-directory mechanism (no `virtio-fs`), so Caddy's config and
 > certificates cannot be delivered via a `:ro` bind mount the way they were under a
 > directory-sharing hypervisor. Two candidate mechanisms need local verification before
@@ -12993,7 +12993,7 @@ Kata will need virtualization device access to launch the Caddy MicroVM. You mus
 
 Crucially, when performing the **Host-Side MAC Test (Step 4)** for Caddy, identify the true
 host-side process the same way as for rest-server (`ps -eZ`, expected to be the `firecracker`
-process for Caddy's own VM instance — Caddy's guest has no legitimate reason to touch the
+process for Caddy's own VM instance - Caddy's guest has no legitimate reason to touch the
 repository at all), then verify it is blocked from reading either repository image:
 ```bash
 sudo runcon -t <caddy_firecracker_domain_t> -- cat /var/lib/vault-rhel/repos/pc.img
@@ -13020,7 +13020,7 @@ Build a second minimal ext4 rootfs containing only Caddy and a working init:
 
 Caddy's configuration and TLS certificates are embedded into the **read-only** rootfs
 image at build time. There is no runtime config injection, no bind mount, and no
-shared filesystem — the config is immutable once baked. Certificate rotation requires
+shared filesystem - the config is immutable once baked. Certificate rotation requires
 a rootfs rebuild and MicroVM restart.
 
 Static network configuration is embedded in the init script, exactly as described for
@@ -13031,11 +13031,11 @@ rest-server in H4.1.2 Step 4.
 Use the same raw HTTP API pattern from H4.1.2 Step 5. Caddy's MicroVM needs:
 
 - `boot-source`: Same guest kernel as rest-server (shared `vmlinux`)
-- `drives/rootfs`: Caddy-specific read-only rootfs (no data drive — Caddy has no
+- `drives/rootfs`: Caddy-specific read-only rootfs (no data drive - Caddy has no
   repository)
 - `network-interfaces/eth0`: TAP device in the appropriate network namespace
 
-No `PUT /vsock` call — intentionally omitted. Caddy does not need a data block device;
+No `PUT /vsock` call - intentionally omitted. Caddy does not need a data block device;
 it only terminates TLS and reverse-proxies to rest-server over the namespace network.
 
 #### 3. Readiness Detection
@@ -13126,7 +13126,7 @@ systemd-analyze --user verify "$HOME/.config/systemd/user/vault-daily-pc.service
 systemctl --user cat vault-daily-pc.service
 systemctl --user start vault-daily-pc.service
 
-# VPS — run on each compartment VPS
+# VPS - run on each compartment VPS
 sudo systemctl cat vault-device-coordinator.service
 sudo systemctl cat vault-s3-proxy.service
 sudo systemctl cat vault-tailscale-expire-primary.service
@@ -13179,7 +13179,7 @@ Mandatory negative tests:
 **Stage B checks:**
 
 ```text
-[ ] systemd-analyze security vault-caddy-pc.service / vault-caddy-phone.service — score improves, no new permission errors
+[ ] systemd-analyze security vault-caddy-pc.service / vault-caddy-phone.service - score improves, no new permission errors
 [ ] Full PC backup cycle succeeds end-to-end
 [ ] Full Phone backup cycle succeeds end-to-end
 [ ] Largest realistic snapshot transfer does not hit MemoryMax=512M (check journalctl for OOM/cgroup kill)
@@ -13193,7 +13193,7 @@ Mandatory negative tests:
 ```text
 [ ] SystemCallFilter=@system-service, EPERM mode, zero denials over one full backup cycle on PC
 [ ] Same, zero denials on Phone
-[ ] Any observed denial is symmetric across PC and Phone before being approved (Section 26 rule) — asymmetric denial is fail-closed, do not approve
+[ ] Any observed denial is symmetric across PC and Phone before being approved (Section 26 rule) - asymmetric denial is fail-closed, do not approve
 [ ] Gate path (/__vault_gate, /__vault_done) still reaches 169.254.10.1:8090 / 169.254.20.1:8090 unaffected
 [ ] Non-allowlisted method/path still returns 404 "Vault protocol path denied" unaffected
 ```

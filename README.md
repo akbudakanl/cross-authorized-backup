@@ -48,7 +48,7 @@ The project does **not** claim to be ransomware-proof.
 ## Trust Model & System Assumptions
 
 This system operates strictly on a **Trust-On-First-Use (TOFU)** model:
-* **Initial Clean State:** It is assumed that all participating endpoints and infrastructure—the computer, phone, and RHEL backup server—are completely secure, uncompromised, and free of any malicious software at the time of initial system installation and cryptographic key generation.
+* **Initial Clean State:** It is assumed that all participating endpoints and infrastructure-the computer, phone, and RHEL backup server-are completely secure, uncompromised, and free of any malicious software at the time of initial system installation and cryptographic key generation.
 * **Post-Provisioning Protection:** The threat model specifically addresses post-installation security degradation, preventing an endpoint that becomes compromised *after* initial deployment from unilaterally abusing backup credentials, corrupting recovery paths, or minting unauthorized backup sessions.
 
 ## Authorization Model
@@ -190,7 +190,7 @@ Change records preserve material security-design corrections separately from the
 * If `/etc/vault-device/coordinator.env` is absent, it falls back to permissive development defaults (mock config, listeners bound to all interfaces).
 * It does not implement the coordinator behavior documented in the core guide.
 
-The authoritative coordinator specification — including proof issuance, close-payload validation, target/deadline/freshness checks, and its acceptance tests — is embedded in Section 23.4 of `docs/core/Vault_Zero_Trust_Master_Guide_CORE.md`. That document is the single source of truth for this component.
+The authoritative coordinator specification - including proof issuance, close-payload validation, target/deadline/freshness checks, and its acceptance tests - is embedded in Section 23.4 of `docs/core/Vault_Zero_Trust_Master_Guide_CORE.md`. That document is the single source of truth for this component.
 
 ## Project History
 

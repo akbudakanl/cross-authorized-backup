@@ -1,7 +1,7 @@
 ---
 status: rejected
 ---
-# VAULT EXTENSION — REPLACE TAILSCALE CONTROL PLANES WITH HEADSCALE
+# VAULT EXTENSION - REPLACE TAILSCALE CONTROL PLANES WITH HEADSCALE
 ================================================================================
 
 This extension has been rejected due to security considerations and extra infrastructure requirements:
@@ -537,7 +537,7 @@ The core Vault expects the primary-device enrollment/sign-in ceremony to require
 browser-mediated authentication rather than a reusable pre-auth key stored on the
 primary device.
 
-> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** This section documents TOTP-based MFA as
+> **[OPTIONAL UPGRADE - YubiKey / FIDO2]** This section documents TOTP-based MFA as
 > the default second factor for Authelia. Authelia also supports WebAuthn (FIDO2)
 > natively. If a FIDO2 hardware security key is available, configure `authelia.yml`
 > to prefer WebAuthn over TOTP for the Vault Tailscale OIDC user in each compartment.
@@ -1179,7 +1179,7 @@ misdescribe it as STS revocation or as the peer-close authorization factor.
 
 Run these tests on both compartments before enabling real backup.
 
-### Test H-01 — exactly three expected nodes
+### Test H-01 - exactly three expected nodes
 
 ```bash
 sudo -u headscale headscale nodes list --output json | jq 'length'
@@ -1194,7 +1194,7 @@ Expected:
 Investigate any unexpected node. Do not merely delete it and continue without
 understanding how it enrolled.
 
-### Test H-02 — primary inbound prohibition
+### Test H-02 - primary inbound prohibition
 
 From `vault-pc`, attempt a new connection to an arbitrary PC port that has no core
 return connection:
@@ -1208,14 +1208,14 @@ must remain enabled.
 
 Repeat the equivalent negative test in the Phone compartment.
 
-### Test H-03 — cross-compartment isolation
+### Test H-03 - cross-compartment isolation
 
 PC tailnet nodes must not resolve or reach Phone Headscale addresses. Phone tailnet
 nodes must not reach PC Headscale addresses.
 
 There is no shared Headscale control plane and no subnet route bridging the two.
 
-### Test H-04 — DERP fallback on restrictive Wi-Fi
+### Test H-04 - DERP fallback on restrictive Wi-Fi
 
 On the real restrictive Wi-Fi network:
 
@@ -1230,7 +1230,7 @@ not change based on transport type.
 
 Never add a direct-to-S3 or public-RHEL bypass because the network forces DERP.
 
-### Test H-05 — exact local expiry
+### Test H-05 - exact local expiry
 
 With no real Vault data transfer running, create a test expiry intent containing the
 exact expected primary IP:
@@ -1260,7 +1260,7 @@ expiry.intent is removed only after successful local expiry
 
 Reauthenticate the primary through the normal OIDC/MFA flow.
 
-### Test H-06 — malformed intent fails closed
+### Test H-06 - malformed intent fails closed
 
 Write a wrong IP:
 
@@ -1272,7 +1272,7 @@ printf 'ip=100.64.255.254\n' | \
 The helper must fail and leave the intent/state for investigation. It must not select a
 nearby node or expire a node by hostname-only matching.
 
-### Test H-07 — one compromised Headscale control plane is not enough for AWS/RHEL
+### Test H-07 - one compromised Headscale control plane is not enough for AWS/RHEL
 
 Use a test node in only the PC Headscale compartment. Even if policy is deliberately
 broadened for the test, the test node must not obtain:
@@ -1345,14 +1345,14 @@ self-hosted DERP are separate decisions.
 
 Rollback is a planned migration, not `tailscale logout` on random nodes.
 
-### Phase 1 — freeze
+### Phase 1 - freeze
 
 1. No active Vault session.
 2. S3 proxies have no active tunnels.
 3. Both RHEL backends stopped.
 4. Preserve Headscale databases/configuration for forensic rollback.
 
-### Phase 2 — recreate/verify the two independent Tailscale tailnets
+### Phase 2 - recreate/verify the two independent Tailscale tailnets
 
 Return to the core topology:
 
@@ -1371,14 +1371,14 @@ Phone tailnet:
 Enable Tailnet Lock and establish the core signer set before opening Vault access.
 Remember that Android is not used as a signing node in the core plan.
 
-### Phase 3 — migrate every node
+### Phase 3 - migrate every node
 
 Remove custom Headscale login-server configuration and re-enroll every node into the
 matching Tailscale tailnet.
 
 Verify exact Tailscale node IDs and IPs before configuring the expiry helper.
 
-### Phase 4 — reinstall exact-device Tailscale expiry helper
+### Phase 4 - reinstall exact-device Tailscale expiry helper
 
 Create one separate OAuth credential per tailnet with the documented `devices:core`
 scope and exact helper tag/constraints from the core guide.
@@ -1386,12 +1386,12 @@ scope and exact helper tag/constraints from the core guide.
 Reinstall the root-owned helper exactly as documented in the master. Do not invent a
 broader general-purpose Tailscale API wrapper.
 
-### Phase 5 — Tailnet Lock acceptance
+### Phase 5 - Tailnet Lock acceptance
 
 Sign only the expected nodes. Verify an unsigned test node receives no locked-tailnet
 connectivity.
 
-### Phase 6 — remove Headscale only after negative tests pass
+### Phase 6 - remove Headscale only after negative tests pass
 
 After the core day-zero tests pass:
 
@@ -1456,7 +1456,7 @@ For this project, the second statement is why Tailscale remains the core default
 ## HARDENING COMPATIBILITY DELTA
 
 This extension is subordinate to the core master guide's
-`PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
+`PART 2A: PRODUCTION SERVICE CONFINEMENT - SYSTEMD AND PODMAN HARDENING`.
 
 Rules:
 

@@ -31,7 +31,7 @@ Operator constraints fixed for this extension:
 * Backup payloads remain opaque: the proxy must not gain access to plaintext data
   (restic encrypts client-side, so HTTP bodies are already ciphertext).
 
-## Why this design — and the rejected alternatives
+## Why this design - and the rejected alternatives
 
 | Alternative | Verdict |
 |---|---|
@@ -49,7 +49,7 @@ Operator constraints fixed for this extension:
   reuse authority.
 * **Confidentiality unchanged.** HTTP bodies are restic ciphertext; the proxy gains
   visibility only into request metadata (operation, repository-relative path, object
-  size, timing) — a strictly weaker view than the modeled full-VPS-root compromise.
+  size, timing) - a strictly weaker view than the modeled full-VPS-root compromise.
 * **Deterministic economic bound.** Request-count quotas convert the flood vector from
   "bounded only by time" to "bounded by a fixed number".
 * **Fail-closed behavior.** Malformed HTTP, unexpected methods, wrong CONNECT targets,
@@ -154,7 +154,7 @@ a fully malicious maximal-rate client.
    writable state path differ.
 3. Create `/var/lib/vault-s3-proxy/state` (owned `vaultproxy`, mode `0700`).
 4. On each primary device, extend the existing proxy-scoped environment block in the
-   daily workflow — the block that already exports and unsets `HTTPS_PROXY` around the
+   daily workflow - the block that already exports and unsets `HTTPS_PROXY` around the
    restic S3 call:
 
    ```bash
@@ -196,17 +196,17 @@ extension; revert the entries on rollback.
 
 * Per-compartment proxy CA private key (`vault-pc` / `vault-phone`, never shared).
   Compromise yields metadata-level interception of that compartment's Vault S3 sessions
-  only — strictly narrower than the already-modeled full-VPS-root loss in T-03.
+  only - strictly narrower than the already-modeled full-VPS-root loss in T-03.
 * Per-device quota state files (integrity-relevant; tampering is a local-root concern).
 
-**Modified invariants** — none of I-01 … I-16 is weakened. Enforcement of I-06/I-07
+**Modified invariants** - none of I-01 … I-16 is weakened. Enforcement of I-06/I-07
 residuals is tightened: in-session S3 request volume becomes bounded by configuration
 instead of only by the signed deadline. I-09's enforcement point is unchanged (fixed
 egress `/32`, now with request-level accounting at the same host).
 
 **Changed threat register entries**
 
-* T-07 / T-11: residual shrinks — a stolen or suppressed-DONE session can no longer
+* T-07 / T-11: residual shrinks - a stolen or suppressed-DONE session can no longer
   issue unlimited requests inside the window; it hits the session quota.
 * T-09: upgraded from "documented residual" to "bounded" while the extension is
   enabled. Revert to the residual wording if rolled back.

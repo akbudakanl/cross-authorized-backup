@@ -11,7 +11,7 @@ This document summarizes the architectural security changes applied to the Vault
 - **Fstab Restrictions:** Introduced a requirement to mount the ZFS/Btrfs backend dataset with `noexec,nodev,nosuid` flags in `/etc/fstab` to prevent the host kernel from executing any malicious binaries written during a hypothetical container breakout.
 
 ### 2. `Vault_Threat_Model_and_Risk_Register.md`
-- **Residual Risk Added:** Located the Threat Register and appended a new residual risk under Appendix H: `### H-R4 — Virtiofsd Sandbox Escape / Write Primitive Abuse`. 
+- **Residual Risk Added:** Located the Threat Register and appended a new residual risk under Appendix H: `### H-R4 - Virtiofsd Sandbox Escape / Write Primitive Abuse`. 
 - **Risk Documentation:** Documented that despite SELinux, namespaces, and noexec restrictions, the `rest-server`'s inherent write access means a novel zero-day in `virtiofsd` could theoretically corrupt the backup repository. This formalizes the necessity of independent, off-site replication as the ultimate failsafe.
 
 > [!TIP]

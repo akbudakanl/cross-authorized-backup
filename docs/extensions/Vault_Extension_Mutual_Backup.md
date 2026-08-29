@@ -1,7 +1,7 @@
 ---
 status: rejected
 ---
-# VAULT EXTENSION — MUTUAL ENCRYPTED PC↔PHONE BACKUP
+# VAULT EXTENSION - MUTUAL ENCRYPTED PC↔PHONE BACKUP
 ================================================================================
 
 This extension has been rejected for security reasons and its contents are not included in the Core master guide.
@@ -684,7 +684,7 @@ core outbound-only negative tests pass.
 ## HARDENING COMPATIBILITY DELTA
 
 This extension is subordinate to the core master guide's
-`PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
+`PART 2A: PRODUCTION SERVICE CONFINEMENT - SYSTEMD AND PODMAN HARDENING`.
 
 Rules:
 

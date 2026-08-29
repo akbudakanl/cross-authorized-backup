@@ -3,7 +3,7 @@ status: pending
 ---
 # Extension: Hybrid S3 Storage Tiering (Hot Metadata / Cold Data)
 
-> **Status: pending — deliberately deferred.** The operator has paused the project
+> **Status: pending - deliberately deferred.** The operator has paused the project
 > and explicitly deferred the architectural decisions below. Nothing in this file is
 > adopted; the core guide is intentionally unchanged while this extension is pending.
 > The open decision points are collected in the "Operator review checklist" so they
@@ -30,7 +30,7 @@ its delta decision is pure chunk-ID arithmetic against the **index**. Each backu
 must therefore *read* the freshly written index files. The local cache covers previously
 seen indexes only, so every run after the first attempts a `GetObject` on cold objects
 and fails with `InvalidObjectState`. An all-cold repository is not merely expensive to
-verify — its second backup is already structurally broken.
+verify - its second backup is already structurally broken.
 
 Hybrid tiering is therefore a **correctness prerequisite** for any long-lived Deep
 Archive repository, not a cost optimization.
@@ -69,7 +69,7 @@ Properties and notes:
 
 * Delta detection is unaffected by data going cold: normal backups read only
   `config/`, `index/`, and transiently `locks/`; `data/` packs are never read until
-  restore, `check --read-data`, or prune — none of which run routinely against S3
+  restore, `check --read-data`, or prune - none of which run routinely against S3
   (invariant I-13 unchanged).
 * Confidentiality is unchanged: metadata objects are client-side restic ciphertext.
   "Readable" means fetchable, not decryptable without the repository password.
@@ -115,7 +115,7 @@ SHA-256 against the source. Slot: after `summary_from_json`, before `post_rhel_d
 Honest assessment: the quarterly staged full-read check already bounds corruption
 latency at ≤28 days (average ~14). Same-day smoke restore shortens this for freshly
 uploaded packs only; its marginal value is modest, its cost near zero. Defer or adopt
-— neither choice affects the security model.
+- neither choice affects the security model.
 
 ### 3.3 Rejected: S3 per-transfer data verification
 

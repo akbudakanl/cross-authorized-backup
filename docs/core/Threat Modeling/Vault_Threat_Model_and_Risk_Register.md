@@ -1,4 +1,4 @@
-# THE VAULT — THREAT MODEL AND RISK REGISTER
+# THE VAULT - THREAT MODEL AND RISK REGISTER
 ================================================================================
 
 ## 1. Purpose and authority
@@ -57,27 +57,27 @@ Baseline retention: keep all snapshots; no forget/prune.
 
 ## 3. Assets
 
-### A1 — Primary plaintext
+### A1 - Primary plaintext
 
 The current working data on PC and Phone. Loss, unauthorized read, or unauthorized
 exfiltration is high impact.
 
-### A2 — Restic repository passwords
+### A2 - Restic repository passwords
 
 PC and Phone repository passwords permit decryption of their corresponding repositories.
 The baseline RHEL host does not store them.
 
-### A3 — VPS Vault Ed25519 signing private keys
+### A3 - VPS Vault Ed25519 signing private keys
 
 `vault-pc` and `vault-phone` each hold one independent signing key. A valid fresh AWS or
 RHEL authorization proof requires both signatures on the same core payload.
 
-### A4 — Device phase tokens
+### A4 - Device phase tokens
 
 The PC and Phone each hold one independent 256-bit phase token. Each owning VPS stores
 only its SHA-256 verifier.
 
-### A5 — AWS issuance and containment state
+### A5 - AWS issuance and containment state
 
 DynamoDB daily-slot/completion records; issuance-gate, device-specific completion-
 revoker, and read-only completion-status Lambda code/configuration; exact backup-role
@@ -86,18 +86,18 @@ event notifications; five-minute completion reconciliation rules; IAM roles; S3 
 policies; versioning; fixed `aws:SourceIp` conditions; budget alert/action; and
 CloudTrail/EventBridge alerting.
 
-### A6 — Tailscale membership trust state
+### A6 - Tailscale membership trust state
 
 Tailnet Lock key authority state, trusted signer keys, disablement secrets, exact
 primary NodeIDs/IPs, and the root-owned per-tailnet OAuth expiry credential.
 
-### A7 — RHEL ciphertext repositories and local gate state
+### A7 - RHEL ciphertext repositories and local gate state
 
 The PC/Phone repository bytes, per-repository capacity boundaries, consumed daily-slot
 files, active backend timers, Caddy/TLS configuration, and the two VPS public signing
 keys.
 
-### A8 — Independent detection and break-glass state
+### A8 - Independent detection and break-glass state
 
 The `VaultDetectionState` table, DynamoDB slot stream, `VaultSlotWatch`,
 `VaultAuditWatch`, `VaultStsWatch`, `VaultAuthFailureWatch`, EventBridge/Scheduler rules, SNS security topic,
@@ -146,40 +146,40 @@ use separate custody rules.
 
 ## 5. Security invariants
 
-### I-01 — Separate primary compartments
+### I-01 - Separate primary compartments
 
 PC and Phone are not members of the same tailnet. Each primary can reach only its own
 VPS Vault listeners and own RHEL listener. No direct PC↔Phone Vault data path exists in
 the baseline.
 
-### I-02 — Local inbound prohibition
+### I-02 - Local inbound prohibition
 
 Fedora keeps Tailscale Shields Up. Android keeps Allow incoming connections disabled.
 Neither primary runs a Vault receiver service in the baseline.
 
-### I-03 — Two independent Vault signatures
+### I-03 - Two independent Vault signatures
 
 AWS S3 issuance and RHEL backend opening require valid `vault-pc` and `vault-phone`
 Ed25519 signatures over the exact same core fresh payload.
 
-### I-03A — Fresh S3 opening requires live participation from both primaries
+### I-03A - Fresh S3 opening requires live participation from both primaries
 
 A primary's own SSO/MFA success is necessary but insufficient. The opposite primary must
 also hold a live authenticated `s3` phase on its own VPS so that the opposite VPS signs
 the same fresh payload. No phase helper may be converted into an always-on daemon or
 preauthorization service for an absent primary.
 
-### I-04 — One daily issuance/opening slot per device/repository
+### I-04 - One daily issuance/opening slot per device/repository
 
 PC S3, Phone S3, RHEL-PC, and RHEL-Phone have separate calendar-day slots. The date is
 computed in `Europe/Istanbul`. There is no reset API; the date is part of the slot key.
 
-### I-05 — Slot before credential/backend creation
+### I-05 - Slot before credential/backend creation
 
 AWS Lambda consumes the device/day slot before its single `AssumeRole` attempt. RHEL
 consumes the repository/day slot before starting the matching backend.
 
-### I-06 — Credential issuance is non-retryable; incomplete data-plane work may retry
+### I-06 - Credential issuance is non-retryable; incomplete data-plane work may retry
 
 After daily-slot consumption, an ambiguous AWS issuance result is fail-closed and is
 not retried. A successfully returned STS credential may be reused for bounded
@@ -189,7 +189,7 @@ intentionally invalidates old-session reuse before the original STS `Expiration`
 containment propagation succeeds. RHEL data-plane retries reuse the already-open backend
 window; they do not create a new RHEL ceremony.
 
-### I-07 — S3 successful completion is independently contained; local `DONE` is not required
+### I-07 - S3 successful completion is independently contained; local `DONE` is not required
 
 For S3, local `DONE` is only the fastest cooperative close. AWS independently records a
 new `snapshots/` object followed by a later `locks/` removal in the exact issued window.
@@ -204,46 +204,46 @@ cannot move the persisted signed one-hour session deadline; the RHEL systemd-man
 hard-stop timer remains the security boundary. VPS coordinators independently queue
 own-primary expiry at deadline.
 
-### I-08 — S3 device isolation
+### I-08 - S3 device isolation
 
 PC and Phone use different buckets, backup roles, Lambda gates, and daily slots. A PC
 backup credential cannot access the Phone bucket and vice versa. Bucket-side explicit
 denies protect against an accidentally broadened identity policy.
 
-### I-09 — Fixed egress source identity
+### I-09 - Fixed egress source identity
 
 Routine S3 backup actions are allowed only when requests leave from the matching Vault
 VPS stable public egress `/32`. A stolen STS credential from an ordinary attacker IP
 must fail the `aws:SourceIp` condition.
 
-### I-10 — RHEL local authorization
+### I-10 - RHEL local authorization
 
 RHEL does not trust `OPEN` text from either VPS. It verifies both signatures locally and
 starts only the target-specific backend.
 
-### I-11 — RHEL keyless baseline
+### I-11 - RHEL keyless baseline
 
 RHEL stores neither source repository password in the baseline. RHEL is a ciphertext
 receiver, not a decryption-capable maintenance node.
 
-### I-12 — Per-repository capacity isolation
+### I-12 - Per-repository capacity isolation
 
 PC repository growth must not automatically exhaust the Phone repository allocation and
 vice versa. Per-repository quota/allocation limits are required in addition to global
 filesystem monitoring.
 
-### I-13 — Cold S3 is not routine maintenance storage
+### I-13 - Cold S3 is not routine maintenance storage
 
 Glacier Deep Archive receives backup data. Routine `check --read-data-subset`, PAR2,
 forget, and prune are not run against cold S3. Cold recovery is validated through a
 separate archive-restore drill.
 
-### I-14 — No-prune baseline
+### I-14 - No-prune baseline
 
 No routine `forget` or `prune` capability exists. The 85% RHEL hard guard is an
 architecture migration trigger, not permission for an ad-hoc cleanup command.
 
-### I-15 — Independent detection plane and detector-health visibility
+### I-15 - Independent detection plane and detector-health visibility
 
 Production operation requires the post-install detection profile. Tailscale configuration
 audit reading uses AWS-to-Tailscale workload identity federation and only
@@ -257,7 +257,7 @@ separate IAM Roles Anywhere X.509 workload identity. Audit polling blind state a
 documented authorization-watcher blind state are alert conditions. Detection state cannot
 grant AWS/RHEL backup authority.
 
-### I-16 — Break-glass and admin credentials do not collapse both VPS compartments
+### I-16 - Break-glass and admin credentials do not collapse both VPS compartments
 
 AWS root access keys do not exist. AWS root/Tailnet Lock disablement/provider recovery
 records are outside the routine Vault data path. `vault-pc` and `vault-phone` do not share
@@ -267,7 +267,7 @@ identity. Cross-VPS Ed25519 private signing keys are never co-located.
 
 ## 6. Threat register
 
-### T-01 — PC endpoint malware
+### T-01 - PC endpoint malware
 
 **Scenario:** malware reads PC plaintext, PC phase token, or active process credentials.
 
@@ -287,11 +287,11 @@ not a general endpoint DLP product.
 
 **Status:** mitigated, residual high-value endpoint risk accepted.
 
-### T-02 — Phone endpoint malware
+### T-02 - Phone endpoint malware
 
 Symmetric to T-01.
 
-### T-03 — One Vault VPS root compromise
+### T-03 - One Vault VPS root compromise
 
 **Scenario:** attacker gets one coordinator, one Vault signing private key, one Tailnet
 Lock signer state, one exact S3 egress IP, and the root-owned Tailscale expiry credential
@@ -313,7 +313,7 @@ A matching compromise of the other signing boundary breaks I-03.
 
 **Status:** core design target; single VPS compromise must not independently open AWS or RHEL.
 
-### T-04 — Tailscale coordination-plane compromise
+### T-04 - Tailscale coordination-plane compromise
 
 **Scenario:** control plane attempts to insert a rogue node or distribute malicious
 membership state.
@@ -328,7 +328,7 @@ signing node.
 
 **Status:** membership insertion risk mitigated by Tailnet Lock.
 
-### T-05 — Tailnet Lock signing-node compromise
+### T-05 - Tailnet Lock signing-node compromise
 
 **Scenario:** one trusted infrastructure signer is compromised and signs an attacker
 node in its own tailnet.
@@ -343,7 +343,7 @@ a shared membership-recovery trust boundary.
 
 **Status:** residual; review signer placement after any RHEL trust-model change.
 
-### T-06 — Tailscale `devices:core` expiry credential compromise
+### T-06 - Tailscale `devices:core` expiry credential compromise
 
 **Scenario:** root-owned OAuth client secret on one VPS is stolen. `devices:core` is
 broader than expire-only and can access multiple device management mutation endpoints.
@@ -359,7 +359,7 @@ helper code. Scope breadth is an accepted weakness of the current Tailscale API 
 **Status:** meaningful residual; Headscale extension removes this credential at the cost
 of the Tailnet Lock membership guarantee.
 
-### T-07 — Stolen STS credential
+### T-07 - Stolen STS credential
 
 **Scenario:** malware copies a successful PC or Phone STS credential from process memory.
 
@@ -379,7 +379,7 @@ completion-revocation path instead.
 **Status:** successful-completion reuse is actively contained; incomplete-session and
 short propagation residuals remain.
 
-### T-08 — Repeated STS minting after VPS/auth bypass
+### T-08 - Repeated STS minting after VPS/auth bypass
 
 **Scenario:** attacker bypasses VPS ceremony logic and repeatedly asks for new one-hour
 sessions.
@@ -392,7 +392,7 @@ midnight. Each device has its own slot. Detection/containment latency still matt
 
 **Status:** hard rate limit implemented.
 
-### T-09 — AWS cost/API request abuse
+### T-09 - AWS cost/API request abuse
 
 **Scenario:** attacker produces excessive object/request operations rather than only
 large files.
@@ -414,7 +414,7 @@ and the fixed egress path.
 in-session request flooding is bounded by the mandatory Section 23.6A quotas pending
 the recorded validation gate.
 
-### T-10 — Daily slot consumed before legitimate operator session
+### T-10 - Daily slot consumed before legitimate operator session
 
 **Scenario:** attacker obtains a valid dual proof and consumes a device/repository slot
 before the operator.
@@ -428,7 +428,7 @@ slot to ambiguous duplicate issuance.
 
 **Status:** accepted fail-closed behavior.
 
-### T-11 — Endpoint suppresses `DONE`
+### T-11 - Endpoint suppresses `DONE`
 
 **Scenario:** malware keeps its control socket or transfer active and never sends DONE.
 
@@ -448,7 +448,7 @@ or extend authority.
 **Status:** successful-completion DONE suppression no longer grants a veto over S3
 containment; incomplete-session hard ceiling remains.
 
-### T-12 — Restricted Wi-Fi blocks UDP/WireGuard direct path
+### T-12 - Restricted Wi-Fi blocks UDP/WireGuard direct path
 
 **Scenario:** campus/dorm network drops UDP.
 
@@ -459,7 +459,7 @@ blocked, backup is unavailable and fails closed.
 
 **Status:** resilience risk, not authorization bypass.
 
-### T-13 — RHEL root compromise
+### T-13 - RHEL root compromise
 
 **Scenario:** attacker controls the physical RHEL OS.
 
@@ -472,7 +472,7 @@ extension is enabled, RHEL becomes decryption-capable and this risk materially w
 
 **Status:** keyless baseline limits confidentiality impact.
 
-### T-14 — RHEL capacity exhaustion by one source
+### T-14 - RHEL capacity exhaustion by one source
 
 **Scenario:** compromised PC appends junk to its own repository and triggers global disk
 pressure.
@@ -485,7 +485,7 @@ host concern; keep OS reserve and global monitor.
 
 **Status:** compartment blast radius reduced.
 
-### T-15 — Deep Archive copy cannot be recovered when needed
+### T-15 - Deep Archive copy cannot be recovered when needed
 
 **Scenario:** backup success is mistaken for proven restore capability; restic cold
 storage behavior or AWS restore process changes.
@@ -494,7 +494,7 @@ storage behavior or AWS restore process changes.
 drill; record restic version, restore tier, time, and cost; no routine cold subset check
 claim.
 
-**[OPTIONAL UPGRADE — YubiKey / FIDO2]:** The MFA protecting this restore path is
+**[OPTIONAL UPGRADE - YubiKey / FIDO2]:** The MFA protecting this restore path is
 currently TOTP-based. Because this is a single-approver break-glass path (not protected
 by the dual-VPS ceremony), it represents the highest-value target for a FIDO2 hardware
 security key. If only one YubiKey is available, assign it here first.
@@ -503,7 +503,7 @@ security key. If only one YubiKey is available, assign it here first.
 
 **Status:** must be operationally tested.
 
-### T-16 — No-prune capacity growth
+### T-16 - No-prune capacity growth
 
 **Scenario:** keep-all history reaches the RHEL storage ceiling.
 
@@ -514,7 +514,7 @@ security key. If only one YubiKey is available, assign it here first.
 
 **Status:** deferred complexity by design.
 
-### T-17 — Supply-chain/configuration drift
+### T-17 - Supply-chain/configuration drift
 
 **Scenario:** package upgrade, manual edit, or generated-guide drift weakens an invariant.
 
@@ -526,7 +526,7 @@ tests; extension-specific rollback instructions.
 
 **Status:** procedural risk; old 16-guide matrix is non-authoritative.
 
-### T-18 — Detection-plane blindness
+### T-18 - Detection-plane blindness
 
 **Scenario:** EventBridge Scheduler, AWS outbound identity federation, Tailscale WIF, the
 configuration-log API, or `VaultAuditWatch` fails and privileged mutation becomes less
@@ -542,7 +542,7 @@ plane.
 
 **Status:** detector failure is surfaced, but detection is not an authorization factor.
 
-### T-19 — Break-glass/admin credential compromise collapses compartments
+### T-19 - Break-glass/admin credential compromise collapses compartments
 
 **Scenario:** a shared software SSH key, provider-owner account, AWS root credential,
 Tailnet Lock disablement secret, or co-located VPS signing keys gives one compromise a
@@ -553,7 +553,7 @@ break-glass store; separate VPS provider accounts/providers where practical; sep
 FIDO-backed or compartment-specific SSH credentials; exact SSH host-key fingerprints;
 separate `devices:core` credentials; cross-signing private keys never co-located.
 
-**[OPTIONAL UPGRADE — YubiKey / FIDO2]:** "Multiple FIDO root MFA devices" and
+**[OPTIONAL UPGRADE - YubiKey / FIDO2]:** "Multiple FIDO root MFA devices" and
 "FIDO-backed SSH credentials" above describe the target state. In the current default
 layout, TOTP is used instead of FIDO2/WebAuthn where YubiKey hardware is unavailable.
 When a FIDO2 hardware security key becomes available, upgrade in this priority order:
@@ -567,7 +567,7 @@ chooses the pragmatic lower-cost layout.
 
 **Status:** custody architecture is part of the production security model.
 
-### T-20 — Completion revoker IAM write primitive is compromised
+### T-20 - Completion revoker IAM write primitive is compromised
 
 **Scenario:** an attacker gains code-execution authority in one device-specific S3
 completion-revoker Lambda and abuses its `iam:PutRolePolicy` permission.
@@ -586,7 +586,7 @@ single-component guarantee.
 accepted.
 
 
-### T-21 — Repeated coordinator/RHEL-gate authorization guessing or forged proof payload is silent
+### T-21 - Repeated coordinator/RHEL-gate authorization guessing or forged proof payload is silent
 
 **Scenario:** a compromised primary with tailnet reach repeatedly submits wrong phase
 tokens, or a reachable peer path presents an invalid Ed25519 signature / mismatched
@@ -725,12 +725,12 @@ RHEL root compromise      != repository decryption in the keyless baseline
 Any future change that invalidates one of these equations is a threat-model change, not
 a routine configuration edit.
 
-## APPENDIX H — SYSTEMD/PODMAN CONFINEMENT DELTA (CORE PRODUCTION BASELINE)
+## APPENDIX H - SYSTEMD/PODMAN CONFINEMENT DELTA (CORE PRODUCTION BASELINE)
 
 The core production baseline includes the master guide's
-`PART 2A: PRODUCTION SERVICE CONFINEMENT — SYSTEMD AND PODMAN HARDENING`.
+`PART 2A: PRODUCTION SERVICE CONFINEMENT - SYSTEMD AND PODMAN HARDENING`.
 
-### H-A1 — Additional security objective
+### H-A1 - Additional security objective
 
 A compromised Vault-owned service process should have only the filesystem, network
 family, capabilities, devices, and writable state required by that exact service.
@@ -738,33 +738,33 @@ Container compromise should additionally meet the rootless Podman, SELinux, read
 root filesystem, all-capabilities-dropped, and no-new-privileges boundaries before
 reaching the host user's authority.
 
-### H-I1 — Single-source primary invariant
+### H-I1 - Single-source primary invariant
 
 The Fedora Vault workflow exposes `~/Vault_PC_Ciphertext` as its only backup source and
 binds that source read-only inside the systemd mount namespace. The workflow must not
 crawl or bind the ordinary home tree. Android/Termux continues to pass only
 `~/Vault_Phone_Ciphertext` to `restic backup`.
 
-### H-I2 — Service confinement is defense in depth, not a new authorization factor
+### H-I2 - Service confinement is defense in depth, not a new authorization factor
 
 systemd sandboxing and Podman confinement do not replace cross-VPS dual signatures,
 daily slots, Tailnet Lock, fixed S3 egress, repository quotas, or the signed hard
 deadline. A sandbox failure alone must not create a valid fresh S3/RHEL authorization
 proof.
 
-### H-I3 — RHEL container separation
+### H-I3 - RHEL container separation
 
 The PC rootless rest-server container may bind only the PC repository and PC htpasswd.
 The Phone container may bind only the Phone repository and Phone htpasswd. Neither may
 bind the maintenance credential directory or the opposite repository.
 
-### H-I4 — No privileged-container escape hatch
+### H-I4 - No privileged-container escape hatch
 
 The core baseline prohibits `--privileged`, SELinux label disablement, unconfined
 seccomp as a troubleshooting shortcut, and broad host filesystem bind mounts for Vault
 containers.
 
-### H-R1 — Residual same-user endpoint risk
+### H-R1 - Residual same-user endpoint risk
 
 A Fedora malware process already running outside the confined Vault unit with the
 desktop user's own permissions is not retroactively sandboxed by the Vault service
@@ -772,7 +772,7 @@ unit. It may access files the user can access. The hardening reduces compromise 
 radius of the Vault process tree; it is not an EDR boundary against arbitrary
 same-user malware.
 
-### H-R2 — Runtime compatibility risk
+### H-R2 - Runtime compatibility risk
 
 Over-hardening a network-privileged or container-supervising service can break expiry,
 namespace creation, hard-stop scheduling, or backend supervision. Therefore generic
@@ -780,37 +780,37 @@ empty capability sets and speculative syscall allowlists are not applied to
 `tailscaled`, WireGuard/netns infrastructure, or the Podman-launching outer unit without
 version-specific testing. The negative acceptance matrix is a security invariant.
 
-### H-R3 — Hardening regression severity
+### H-R3 - Hardening regression severity
 
 A change that causes the signed hard-stop timer, exact-device expiry, daily-slot
 enforcement, or repository isolation to fail is classified as HIGH severity even if
 `systemd-analyze security` reports a numerically lower exposure score.
 
-### H-R4 — Virtiofsd Sandbox Escape / Write Primitive Abuse
+### H-R4 - Virtiofsd Sandbox Escape / Write Primitive Abuse
 
 When using Kata Containers/Firecracker for MicroVM isolation, the host-to-guest filesystem bridge (`virtiofsd`) presents a critical attack surface. A compromise of `virtiofsd` could theoretically allow an attacker to escape the MicroVM or read/write arbitrary host files.
 While this risk is heavily mitigated by SELinux enforcing mode, namespace/chroot sandboxing, and host filesystem `noexec`/`nodev` restrictions (as defined in the CORE guide), a residual risk remains for the `rest-server` container. Because the `rest-server` inherently requires write access to the host repository, it cannot benefit from the `:ro` (read-only) mount mitigation applied to Caddy. If a novel zero-day in `virtiofsd` bypasses the `namespace` sandbox and SELinux, the attacker could theoretically corrupt the backup repository. This underscores the necessity of independent, off-site replication outside the scope of the primary RHEL host.
 
-## APPENDIX P — RHEL 9 BYOL/BYOI VPS PLATFORM DELTA
+## APPENDIX P - RHEL 9 BYOL/BYOI VPS PLATFORM DELTA
 
 The core `vault-pc` and `vault-phone` hosts are RHEL 9 BYOL/BYOI systems on OCI
 Free Tier. The current active RHEL 9 minor is used; this revision was normalized against
 RHEL 9.8.
 
-### P-I1 — Architecture-match invariant
+### P-I1 - Architecture-match invariant
 
 An OCI `VM.Standard.E2.1.Micro` deployment uses an `x86_64` RHEL image. An
 `VM.Standard.A1.Flex` deployment uses an `aarch64` RHEL image. Imported-image
 architecture and selected shape must match. A shape-architecture change is a rebuild and
 acceptance-test event, not a transparent resize.
 
-### P-I2 — RHEL content and SELinux invariant
+### P-I2 - RHEL content and SELinux invariant
 
 Both VPSs receive authentic supported RHEL 9 content under the operator's BYOL
 entitlements and remain SELinux Enforcing. RHEL registration/subscription secrets are
 not placed in public cloud-init metadata.
 
-### P-I3 — Custom Vault native services use dedicated identities and systemd confinement
+### P-I3 - Custom Vault native services use dedicated identities and systemd confinement
 
 `vault-device-coordinator` runs as `vaultcoord`; `vault-s3-proxy` runs as `vaultproxy`.
 DAC ownership/mode separation and effective systemd sandboxing are production
@@ -821,7 +821,7 @@ The core baseline does **not** claim dedicated SELinux MAC domains for the custo
 native Go daemons. RHEL SELinux remains Enforcing, but custom policy development is
 outside the required operator skill set for this design.
 
-### P-R1 — BYOI supply/commissioning risk
+### P-R1 - BYOI supply/commissioning risk
 
 A malformed, stale, incorrectly labeled, or architecture-mismatched imported image can
 invalidate firewall, SELinux, update, or boot assumptions before Vault is installed.
@@ -829,7 +829,7 @@ Controls: record image origin/hash, verify architecture, verify RHEL release and
 repositories, verify SELinux Enforcing after valid labeling/reboot, update before Vault
 installation, and preserve provider-console recovery until SSH/firewall tests pass.
 
-### P-R2 — Native custom-daemon MAC confinement is not claimed
+### P-R2 - Native custom-daemon MAC confinement is not claimed
 
 The coordinator and S3 proxy may run in the targeted policy's ordinary unconfined
 service domain. Therefore a service-level exploit is constrained by its dedicated Unix
@@ -842,7 +842,7 @@ avoids locally generated `sepolicy`/`audit2allow` modules because an incorrectly
 allow rule can silently overgrant a security-sensitive service. Standard RHEL and
 Podman/container SELinux policy remains active.
 
-### P-R3 — Full root compromise statement is unchanged
+### P-R3 - Full root compromise statement is unchanged
 
 Dedicated users, DAC separation, and systemd sandboxing make a service-level exploit
 less likely to immediately read another Vault service's secrets. They do **not** change

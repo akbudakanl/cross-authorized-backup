@@ -1,4 +1,4 @@
-# VAULT — DEPLOYMENT-TIME REVALIDATION CHECKLIST
+# VAULT - DEPLOYMENT-TIME REVALIDATION CHECKLIST
 
 **Document type:** pre-deployment revalidation gate  
 **Architecture freeze reference date:** 2026-07-15  
@@ -790,7 +790,7 @@ vs.
 two independent Headscale control planes
 ```
 
-### Evidence snapshot — 2026-07-15
+### Evidence snapshot - 2026-07-15
 
 Observed from the Headscale upstream project at the architecture freeze date:
 
@@ -853,7 +853,7 @@ If Tailscale introduces an expiry-only or otherwise materially narrower scope:
 After successful migration, do not retain `devices:core` "for rollback convenience"
 without a documented break-glass reason.
 
-### Evidence snapshot — 2026-07-15
+### Evidence snapshot - 2026-07-15
 
 The official Tailscale Trust Credentials scope table currently places:
 
@@ -1026,7 +1026,7 @@ For the Headscale extension:
 
 Do not use config examples from Headscale `main` while installing an older stable release.
 
-### Evidence snapshot — 2026-07-15
+### Evidence snapshot - 2026-07-15
 
 Headscale v0.29.x release notes observed:
 
@@ -1105,7 +1105,7 @@ should change.
 
 Feature maturity alone is not a reason to remove recovery testing.
 
-### Evidence snapshot — 2026-07-15
+### Evidence snapshot - 2026-07-15
 
 Observed stable restic state:
 
@@ -1187,7 +1187,7 @@ SDK/runtime changes retry, crypto, timestamp, credentials, or error semantics
     → SECURITY REVIEW REQUIRED
 ```
 
-### Evidence snapshot — 2026-07-15
+### Evidence snapshot - 2026-07-15
 
 AWS official Lambda runtime documentation currently lists:
 
@@ -1439,7 +1439,7 @@ SECURITY REVIEW REQUIRED
 because the core guide was reviewed against RHEL 9 service, package, and platform
 assumptions.
 
-### Evidence snapshot — 2026-07-15
+### Evidence snapshot - 2026-07-15
 
 Red Hat official release-date documentation currently lists:
 
@@ -1512,7 +1512,7 @@ launch mode
 networking mode
 ```
 
-### Evidence snapshot — 2026-07-15
+### Evidence snapshot - 2026-07-15
 
 Oracle's current RHEL custom-image procedure documents:
 
@@ -1774,7 +1774,7 @@ ARCHITECTURE REDESIGN REQUIRED
 
 until an equivalent independent ceremony is restored.
 
-> **[OPTIONAL UPGRADE — YubiKey / FIDO2]** Default MFA for both AWS IAM Identity
+> **[OPTIONAL UPGRADE - YubiKey / FIDO2]** Default MFA for both AWS IAM Identity
 > Center and Authelia/Tailscale is TOTP. TOTP carries 1-in-1,000,000 theoretical
 > predictability per window and is phishing-susceptible. When a FIDO2 hardware security
 > key becomes available, upgrade in this priority order:
@@ -2072,7 +2072,7 @@ Lambda-role → backup-role AssumeRole chain
 
 ---
 
-# Appendix A — 2026-07-15 Evidence Snapshot
+# Appendix A - 2026-07-15 Evidence Snapshot
 
 This appendix records the state observed when this checklist was created.
 
@@ -2131,7 +2131,7 @@ OCI:
 
 ---
 
-# Appendix B — Official Primary Sources to Recheck
+# Appendix B - Official Primary Sources to Recheck
 
 Use current versions of these official pages/projects.
 
@@ -2180,7 +2180,7 @@ Oracle Cloud:
 
 ---
 
-# Appendix C — Rule for Future AI/Operator Review
+# Appendix C - Rule for Future AI/Operator Review
 
 When reviewing the Vault months later, do not ask only:
 
